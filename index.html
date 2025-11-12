@@ -36,9 +36,19 @@
           </button>
           <select id="cluster-select" class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2 mt-2">
             <option value="https://api.devnet.solana.com">Devnet (Testing)</option>
-            <option value="https://api.mainnet-beta.solana.com">Mainnet-beta (Real Funds)</option>
+            <option value="https://api.mainnet-beta.solana.com">Mainnet-beta (Public)</option>
           </select>
-          <p id="connect-hint" class="text-xs text-slate-400 mt-1">Please connect your wallet first to enable the form.</p>
+
+          <!-- Custom RPC URL (prefilled with your Helius endpoint) -->
+          <label for="rpc-url" class="block text-sm font-medium text-slate-300 mt-3">Optional: Custom RPC URL (recommended for Mainnet)</label>
+          <input id="rpc-url" type="text"
+                 value="https://mainnet.helius-rpc.com/?api-key=fda76be1-7d09-4880-80db-837831934193"
+                 placeholder="e.g. https://rpc.helius.xyz/?api-key=YOUR_KEY"
+                 class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="url">
+          <p class="text-xs text-slate-400 mt-1">If provided, this overrides the dropdown. Many public endpoints block browser requests; use your provider URL.</p>
+
+          <p id="connect-hint" class="text-xs text-slate-400 mt-2">Please connect your wallet first to enable the form.</p>
         </div>
 
         <div>
@@ -104,7 +114,7 @@ CxtR...wxyz, 2"></textarea>
     </div>
 
     <footer class="text-center text-slate-500 mt-8 text-sm">
-      Includes automatic retries with batch splitting and a progress bar.
+      Includes automatic retries with batch splitting, progress bar, and custom RPC support.
     </footer>
   </div>
 
@@ -124,6 +134,7 @@ CxtR...wxyz, 2"></textarea>
     // UI
     const connectBtn      = document.getElementById('connect-wallet-btn');
     const clusterSelect   = document.getElementById('cluster-select');
+    const rpcUrlInput     = document.getElementById('rpc-url');
     const mintInput       = document.getElementById('token-mint-address');
     const recipientsInput = document.getElementById('recipients-list');
     const batchSizeInput  = document.getElementById('batch-size');
@@ -193,6 +204,19 @@ CxtR...wxyz, 2"></textarea>
       failedRecipients = [];
       updateProgress();
     }
+
+    // Persist/reload Custom RPC from localStorage
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedRpc = localStorage.getItem('customRpcUrl');
+      if (savedRpc && !rpcUrlInput.value) {
+        rpcUrlInput.value = savedRpc;
+      }
+      setUi(false);
+      resetProgress();
+    });
+    rpcUrlInput.addEventListener('change', () => {
+      localStorage.setItem('customRpcUrl', rpcUrlInput.value.trim());
+    });
 
     // BigInt amount helpers
     function decimalToAmount(str, decimals) {
@@ -352,11 +376,19 @@ CxtR...wxyz, 2"></textarea>
           return false;
         }
 
-        const devnetParam = clusterSelect.value.includes('devnet') ? '?cluster=devnet' : '';
+        const rpc = connection._rpcEndpoint || '';
+        const devnetParam = (rpc.includes('devnet') || document.getElementById('cluster-select').value.includes('devnet'))
+          ? '?cluster=devnet' : '';
         log(`${attemptLabel}Confirmed: https://solscan.io/tx/${sig}${devnetParam}`, 'success');
         return true;
       } catch (e) {
-        log(`${attemptLabel}Batch send error: ${e?.message || String(e)}`, 'error');
+        const msg = e?.message || String(e);
+        if (msg.includes('403') || msg.toLowerCase().includes('forbidden')) {
+          log('RPC returned 403 (forbidden). Use a Custom RPC URL from your provider and try again.', 'error');
+        } else if (msg.toLowerCase().includes('failed to get info about account')) {
+          log('RPC blocked account access. Use a provider RPC URL that allows browser access.', 'error');
+        }
+        log(`${attemptLabel}Batch send error: ${msg}`, 'error');
         return false;
       }
     }
@@ -366,13 +398,11 @@ CxtR...wxyz, 2"></textarea>
       const label = depth ? `[Depth ${depth}] ` : '';
       const ok = await trySendBatch(batch, { simulateBefore: false, attemptLabel: label });
       if (ok) {
-        // Mark all recipients in this batch as completed
         for (const r of batch) completedRecipients.add(r.address.toString());
         updateProgress();
         return;
       }
 
-      // If sending the whole batch failed, try a second attempt with simulation (fresh blockhash).
       const okRetry = await trySendBatch(batch, { simulateBefore: true, attemptLabel: `${label}[Retry] ` });
       if (okRetry) {
         for (const r of batch) completedRecipients.add(r.address.toString());
@@ -381,7 +411,6 @@ CxtR...wxyz, 2"></textarea>
       }
 
       if (batch.length === 1) {
-        // Single recipient still failing — mark as failed
         const r = batch[0];
         failedRecipients.push(r);
         log(`${label}Recipient failed permanently: ${r.address.toString()}`, 'error');
@@ -389,7 +418,6 @@ CxtR...wxyz, 2"></textarea>
         return;
       }
 
-      // Split and try halves
       const mid = Math.floor(batch.length / 2);
       const left = batch.slice(0, mid);
       const right = batch.slice(mid);
@@ -409,10 +437,13 @@ CxtR...wxyz, 2"></textarea>
       resetProgress();
       log('Starting multisend with retries...', 'info');
 
-      const clusterUrl = clusterSelect.value;
-      const mintStr    = mintInput.value.trim();
-      const listStr    = recipientsInput.value.trim();
-      const batchSize  = parseInt(batchSizeInput.value,10);
+      const dropdownUrl = clusterSelect.value;
+      const customRpc   = rpcUrlInput.value.trim();
+      const rpcUrl      = customRpc || dropdownUrl;
+
+      const mintStr    = document.getElementById('token-mint-address').value.trim();
+      const listStr    = document.getElementById('recipients-list').value.trim();
+      const batchSize  = parseInt(document.getElementById('batch-size').value,10);
 
       if (!mintStr) { log('Mint address required.', 'error'); resetSendBtn(); return; }
       if (!listStr)  { log('Recipients list empty.', 'error'); resetSendBtn(); return; }
@@ -421,11 +452,11 @@ CxtR...wxyz, 2"></textarea>
       }
 
       try {
-        // Setup connection and mint info
-        log(`RPC: ${clusterUrl}`, 'info');
-        connection = new Connection(clusterUrl, 'confirmed');
+        log(`RPC: ${rpcUrl}`, 'info');
+        connection = new Connection(rpcUrl, 'confirmed');
         mintPubkey = new PublicKey(mintStr);
 
+        // Detect token program by mint owner
         const mintAcct = await connection.getAccountInfo(mintPubkey, 'confirmed');
         if (!mintAcct) throw new Error('Mint account not found on this cluster.');
         const token2022 = TOKEN_2022_PROGRAM_ID ?? TOKEN_PROGRAM_ID;
@@ -469,7 +500,7 @@ CxtR...wxyz, 2"></textarea>
         try {
           const bal = await connection.getTokenAccountBalance(senderAta, 'confirmed');
           log(`Sender balance (approx): ${bal?.value?.uiAmountString ?? '0'}`, 'info');
-        } catch {}
+        } catch (_) {}
 
         // Create batches of chosen size
         const batches = [];
@@ -494,22 +525,21 @@ CxtR...wxyz, 2"></textarea>
           for (const r of failedRecipients) {
             log(` - ${r.address.toString()} (${formatAmount(r.amount, decimals)})`, 'error');
           }
+          log('Tip: If you saw 403/forbidden earlier, ensure your Custom RPC URL is set and valid.', 'error');
         } else {
           log('All recipients processed successfully.', 'success');
         }
 
       } catch (err) {
-        log(`Error: ${err?.message || String(err)}`, 'error');
+        const msg = err?.message || String(err);
+        if (msg.includes('403') || msg.toLowerCase().includes('forbidden')) {
+          log('RPC returned 403 (forbidden). Use a Custom RPC URL from your provider and try again.', 'error');
+        }
+        log(`Error: ${msg}`, 'error');
         if (err?.stack) log(err.stack, 'error');
       } finally {
         resetSendBtn();
       }
-    });
-
-    // Initialize UI state on load
-    document.addEventListener('DOMContentLoaded', () => {
-      setUi(false);
-      resetProgress();
     });
   </script>
 </body>
