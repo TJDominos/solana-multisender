@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana Token Multisender</title>
+    <!-- 1. Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Load Solana Javascript Libraries -->
+    <!-- These are large files and may take a moment to load -->
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+    <script src="https://unpkg.com/@solana/spl-token@latest/lib/index.iife.min.js"></script>
+    
+    <style>
+        /* Custom scrollbar for the log */
+        #log-output::-webkit-scrollbar { width: 4px; }
+        #log-output::-webkit-scrollbar-track { background: #334155; }
+        #log-output::-webkit-scrollbar-thumb { background: #64748b; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">Solana Token Multisender</h1>
+            <p class="text-slate-400">Send SPL tokens to multiple addresses in one go. No platform fees.</p>
+        </header>
+
+        <!-- Warning Message -->
+        <div class="bg-yellow-900 border border-yellow-700 text-yellow-100 px-4 py-3 rounded-lg mb-6 shadow-lg" role="alert">
+            <div class="flex">
+                <div class="py-1"><svg class="fill-current h-6 w-6 text-yellow-400 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zM9 11v-4h2v4H9zm0 3h2v-2H9v2z"/></svg></div>
+                <div>
+                    <p class="font-bold">Use at Your Own Risk!</p>
+                    <p class="text-sm">This is a powerful tool. Always **test on Devnet** first before sending real assets on Mainnet. Double-check all addresses and amounts. We are not responsible for lost funds.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main App -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- Left Column: Inputs -->
+            <div class="bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col gap-6">
+                
+                <!-- 1. Connect Wallet -->
+                <div>
+                    <h2 class="text-lg font-semibold mb-2">1. Connect Wallet & Select Cluster</h2>
+                    <button id="connect-wallet-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200">
+                        Connect Wallet
+                    </button>
+                    <select id="cluster-select" class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2 mt-2">
+                        <option value="https://api.devnet.solana.com">Devnet (For Testing)</option>
+                        <option value="https://api.mainnet-beta.solana.com">Mainnet-beta (Real Funds)</option>
+                    </select>
+                </div>
+
+                <!-- 2. Token -->
+                <div>
+                    <label for="token-mint-address" class="block text-sm font-medium text-slate-300 mb-1">2. Token Mint Address</label>
+                    <input type="text" id="token-mint-address" class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2" placeholder="e.g., EPjFWwE... (USDC) or token mint">
+                </div>
+                
+                <!-- 3. Batch Size -->
+                <div>
+                    <label for="batch-size" class="block text-sm font-medium text-slate-300 mb-1">3. Transfers per Transaction (Batch Size)</label>
+                    <input type="number" id="batch-size" class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2" value="10">
+                    <p class="text-xs text-slate-400 mt-1">Lower this (e.g., 5) if you get transaction size errors. Max ~12.</p>
+                </div>
+
+                <!-- 4. Recipients -->
+                <div>
+                    <label for="recipients-list" class="block text-sm font-medium text-slate-300 mb-1">4. Recipients List</label>
+                    <textarea id="recipients-list" rows="10" class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2 font-mono text-sm" placeholder="Format: one per line&#10;Address,Amount&#10;Address,Amount&#10;...&#10;Example:&#10;711...abc,10.5&#10;822...xyz,5"></textarea>
+                </div>
+
+                <!-- 5. Action Button -->
+                <button id="send-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200" disabled>
+                    Prepare & Send Transactions
+                </button>
+            </div>
+
+            <!-- Right Column: Log -->
+            <div class="bg-slate-800 p-6 rounded-lg shadow-xl flex flex-col">
+                <h2 class="text-lg font-semibold mb-2 text-white">Log & Progress</h2>
+                <div id="log-output" class="w-full h-96 bg-slate-900 rounded-lg p-4 font-mono text-sm text-slate-300 overflow-y-auto whitespace-pre-wrap break-words">
+                    Welcome! Connect your wallet to begin.
+                </div>
+                <button id="clear-log-btn" class="mt-4 bg-slate-600 hover:bg-slate-700 text-white text-sm py-2 px-4 rounded-lg transition-all duration-200">
+                    Clear Log
+                </button>
+            </div>
+        </div>
+
+        <footer class="text-center text-slate-500 mt-8 text-sm">
+            Created with help from Gemini.
+        </footer>
+    </div>
+
+    <!-- Javascript Logic -->
+    <script>
+        // JS modules are loaded into the global scope by the script tags
+        const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = solanaWeb3;
+        const { getOrCreateAssociatedTokenAccount, createTransferInstruction, TOKEN_PROGRAM_ID, getAssociatedTokenAddress } = splToken;
+
+        // UI Elements
+        const connectWalletBtn = document.getElementById('connect-wallet-btn');
+        const sendBtn = document.getElementById('send-btn');
+        const clearLogBtn = document.getElementById('clear-log-btn');
+        const clusterSelect = document.getElementById('cluster-select');
+        const tokenMintAddressInput = document.getElementById('token-mint-address');
+        const recipientsListInput = document.getElementById('recipients-list');
+        const batchSizeInput = document.getElementById('batch-size');
+        const logOutput = document.getElementById('log-output');
+
+        // App State
+        let wallet = null;
+        let connection = null;
+        let provider = null;
+
+        // --- Logger Function ---
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const color = type === 'error' ? 'text-red-400' : (type === 'success' ? 'text-green-400' : 'text-slate-300');
+            logOutput.innerHTML += `<div class="${color}"><span class="text-slate-500">${timestamp}:</span> ${message}</div>`;
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+
+        clearLogBtn.addEventListener('click', () => {
+            logOutput.innerHTML = 'Log cleared.';
+        });
+
+        // --- 1. Wallet Connection ---
+        connectWalletBtn.addEventListener('click', async () => {
+            if (window.solana && window.solana.isPhantom) {
+                try {
+                    provider = window.solana;
+                    await provider.connect({ onlyIfTrusted: false });
+                    wallet = provider.publicKey;
+                    log('Wallet connected!', 'success');
+                    log(`Wallet address: ${wallet.toString()}`);
+                    connectWalletBtn.textContent = `Connected: ${wallet.toString().substring(0, 4)}...${wallet.toString().substring(wallet.toString().length - 4)}`;
+                    connectWalletBtn.classList.replace('bg-indigo-600', 'bg-slate-700');
+                    sendBtn.disabled = false;
+                    
+                    provider.on('disconnect', () => {
+                        log('Wallet disconnected.', 'error');
+                        wallet = null;
+                        provider = null;
+                        connectWalletBtn.textContent = 'Connect Wallet';
+                        connectWalletBtn.classList.replace('bg-slate-700', 'bg-indigo-600');
+                        sendBtn.disabled = true;
+                    });
+
+                } catch (err) {
+                    log(`Error connecting wallet: ${err.message}`, 'error');
+                }
+            } else {
+                log('Phantom wallet not found. Please install it.', 'error');
+                window.open('https://phantom.app/', '_blank');
+            }
+        });
+
+        // --- Helper: Reset Send Button ---
+        function resetSendBtn() {
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Prepare & Send Transactions';
+        }
+
+        // --- 2. Main Send Logic ---
+        sendBtn.addEventListener('click', async () => {
+            if (!wallet || !provider) {
+                log('Please connect your wallet first.', 'error');
+                return;
+            }
+
+            // --- A. Get & Validate Inputs ---
+            log('Starting bulk send process...');
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Processing...';
+
+            const clusterUrl = clusterSelect.value;
+            const mintAddressStr = tokenMintAddressInput.value.trim();
+            const recipientsCsv = recipientsListInput.value.trim();
+            const batchSize = parseInt(batchSizeInput.value, 10);
+
+            if (!mintAddressStr) {
+                log('Token Mint Address is required.', 'error');
+                resetSendBtn();
+                return;
+            }
+            if (!recipientsCsv) {
+                log('Recipients List is empty.', 'error');
+                resetSendBtn();
+                return;
+            }
+             if (isNaN(batchSize) || batchSize <= 0 || batchSize > 12) {
+                log('Invalid Batch Size. Must be between 1 and 12.', 'error');
+                resetSendBtn();
+                return;
+            }
+
+            let mintPubkey;
+            let tokenDecimals;
+            let senderAta;
+            
+            try {
+                // --- B. Setup Connection & Get Token Info ---
+                log(`Connecting to cluster: ${clusterUrl}`);
+                connection = new Connection(clusterUrl, 'confirmed');
+                mintPubkey = new PublicKey(mintAddressStr);
+
+                log('Fetching token mint info...');
+                const mintInfo = await splToken.getMint(connection, mintPubkey);
+                tokenDecimals = mintInfo.decimals;
+                log(`Token: ${mintAddressStr}, Decimals: ${tokenDecimals}`);
+
+                log("Getting sender's token account...");
+                senderAta = await getAssociatedTokenAddress(mintPubkey, wallet);
+                log(`Sender ATA: ${senderAta.toString()}`);
+                
+                // --- C. Parse Recipients ---
+                log('Parsing recipients list...');
+                const lines = recipientsCsv.split('\n').filter(line => line.trim() !== '');
+                const recipients = lines.map(line => {
+                    const [address, amount] = line.split(',').map(s => s.trim());
+                    if (!address || !amount || isNaN(parseFloat(amount))) {
+                        throw new Error(`Invalid line: ${line}`);
+                    }
+                    return {
+                        address: new PublicKey(address),
+                        amount: parseFloat(amount) * Math.pow(10, tokenDecimals), // Convert to smallest unit
+                    };
+                });
+                log(`Parsed ${recipients.length} recipients.`);
+                const totalAmount = recipients.reduce((sum, r) => sum + r.amount, 0) / Math.pow(10, tokenDecimals);
+                log(`Total amount to send: ${totalAmount} tokens.`);
+
+                // --- D. Create Batches ---
+                log(`Creating batches of ${batchSize}...`);
+                const batches = [];
+                for (let i = 0; i < recipients.length; i += batchSize) {
+                    batches.push(recipients.slice(i, i + batchSize));
+                }
+                log(`Created ${batches.length} transaction batches.`);
+
+                // --- E. Process Batches ---
+                for (let i = 0; i < batches.length; i++) {
+                    const batch = batches[i];
+                    log(`--- Processing Batch ${i + 1} / ${batches.length} ---`);
+
+                    const transaction = new Transaction();
+                    const { blockhash } = await connection.getLatestBlockhash('finalized');
+                    transaction.recentBlockhash = blockhash;
+                    transaction.feePayer = wallet;
+
+                    for (const recipient of batch) {
+                        log(`Preparing transfer for: ${recipient.address.toString()} (${recipient.amount / Math.pow(10, tokenDecimals)})`);
+                        
+                        // This is the key: get or create the destination ATA
+                        // We pass our wallet as the payer for its creation
+                        const destinationAta = await getOrCreateAssociatedTokenAccount(
+                            connection,
+                            { publicKey: wallet }, // Payer
+                            mintPubkey,
+                            recipient.address,
+                            false,
+                            'confirmed',
+                            undefined,
+                            TOKEN_PROGRAM_ID
+                        );
+
+                        // Add the transfer instruction
+                        transaction.add(
+                            createTransferInstruction(
+                                senderAta,
+                                destinationAta.address,
+                                wallet,
+                                recipient.amount,
+                                [],
+                                TOKEN_PROGRAM_ID
+                            )
+                        );
+                    }
+
+                    log(`Batch ${i + 1}: Awaiting signature...`);
+                    
+                    // --- F. Sign & Send Transaction ---
+                    const signedTransaction = await provider.signTransaction(transaction);
+                    log(`Batch ${i + 1}: Sending transaction...`);
+                    
+                    const txid = await connection.sendRawTransaction(signedTransaction.serialize());
+                    log(`Batch ${i + 1}: Transaction sent. TXID: ${txid}`, 'success');
+                    log(`Waiting for confirmation...`);
+
+                    const confirmation = await connection.confirmTransaction(txid, 'finalized');
+                    if (confirmation.value.err) {
+                        throw new Error(`Transaction failed: ${confirmation.value.err}`);
+                    }
+                    log(`Batch ${i + 1} confirmed!`, 'success');
+                    log(`Explorer link: https://solscan.io/tx/${txid}${clusterUrl.includes('devnet') ? '?cluster=devnet' : ''}`);
+                }
+
+                log('--- All batches processed successfully! ---', 'success');
+
+            } catch (err) {
+                log(`Error: ${err.message}`, 'error');
+                if (err.stack) {
+                    log(err.stack, 'error');
+                }
+            } finally {
+                resetSendBtn();
+            }
+        });
+
+    </script>
+</body>
+</html>
