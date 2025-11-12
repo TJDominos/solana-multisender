@@ -18,7 +18,7 @@
   <div class="max-w-5xl mx-auto">
     <header class="mb-8">
       <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">Solana Token Multisender</h1>
-      <p class="text-slate-400">Connect your wallet, paste the mint address, and send SPL tokens to many recipients. Includes progress and retry logic.</p>
+      <p class="text-slate-400">Connect your wallet, paste the mint address, and send SPL tokens to many recipients. Includes progress, retry logic, and trimming utilities.</p>
     </header>
 
     <div class="bg-yellow-900 border border-yellow-700 text-yellow-100 px-4 py-3 rounded-lg mb-6 shadow" role="alert">
@@ -39,7 +39,7 @@
             <option value="https://api.mainnet-beta.solana.com">Mainnet-beta (Public)</option>
           </select>
 
-          <!-- Custom RPC URL (prefilled with your Helius endpoint) -->
+          <!-- Custom RPC URL -->
           <label for="rpc-url" class="block text-sm font-medium text-slate-300 mt-3">Optional: Custom RPC URL (recommended for Mainnet)</label>
           <input id="rpc-url" type="text"
                  value="https://mainnet.helius-rpc.com/?api-key=fda76be1-7d09-4880-80db-837831934193"
@@ -67,7 +67,9 @@
         </div>
 
         <div>
-          <label for="recipients-list" class="block text-sm font-medium text-slate-300 mb-1">4. Recipients (one per line: Address, Amount)</label>
+          <label for="recipients-list" class="block text-sm font-medium text-slate-300 mb-1">
+            4. Recipients (one per line: Address, Amount)
+          </label>
           <textarea id="recipients-list" rows="10" disabled
             class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2 font-mono text-sm"
             placeholder="Address, Amount
@@ -75,6 +77,14 @@ Address, Amount
 Example:
 Hc4q...abcd, 10.5
 CxtR...wxyz, 2"></textarea>
+          <button id="trim-recipients-btn"
+                  type="button"
+                  class="mt-2 bg-slate-600 hover:bg-slate-700 text-white text-xs py-1 px-3 rounded transition">
+            Trim Recipients
+          </button>
+          <p class="text-xs text-slate-400 mt-1">
+            Trims leading/trailing spaces, removes blank lines & unicode spaces, and strips spaces inside addresses.
+          </p>
         </div>
 
         <button id="send-btn" disabled
@@ -114,7 +124,7 @@ CxtR...wxyz, 2"></textarea>
     </div>
 
     <footer class="text-center text-slate-500 mt-8 text-sm">
-      Includes automatic retries with batch splitting, progress bar, and custom RPC support.
+      Includes automatic retries with batch splitting, progress bar, custom RPC support, and manual + passive trimming.
     </footer>
   </div>
 
@@ -131,12 +141,13 @@ CxtR...wxyz, 2"></textarea>
       ASSOCIATED_TOKEN_PROGRAM_ID,
     } from 'https://esm.sh/@solana/spl-token@0.4.6';
 
-    // UI
+    /* -------------------- UI References -------------------- */
     const connectBtn      = document.getElementById('connect-wallet-btn');
     const clusterSelect   = document.getElementById('cluster-select');
     const rpcUrlInput     = document.getElementById('rpc-url');
     const mintInput       = document.getElementById('token-mint-address');
     const recipientsInput = document.getElementById('recipients-list');
+    const trimRecipientsBtn = document.getElementById('trim-recipients-btn');
     const batchSizeInput  = document.getElementById('batch-size');
     const sendBtn         = document.getElementById('send-btn');
     const hint            = document.getElementById('connect-hint');
@@ -150,8 +161,8 @@ CxtR...wxyz, 2"></textarea>
     const countPending    = document.getElementById('count-pending');
     const countFailed     = document.getElementById('count-failed');
 
-    // State
-    let provider = null; // Phantom
+    /* -------------------- State -------------------- */
+    let provider = null; // Phantom provider
     let wallet   = null; // PublicKey
     let connection = null;
 
@@ -166,27 +177,32 @@ CxtR...wxyz, 2"></textarea>
     let completedRecipients = new Set();
     let failedRecipients = [];
 
+    /* -------------------- Logging -------------------- */
     function log(msg, type='info') {
       const ts = new Date().toLocaleTimeString();
-      const color = type === 'error' ? 'text-red-400' : (type === 'success' ? 'text-green-400' : 'text-slate-300');
+      const color = type === 'error' ? 'text-red-400'
+                  : type === 'success' ? 'text-green-400'
+                  : 'text-slate-300';
       logOutput.innerHTML += `\n<div class="${color}"><span class="text-slate-500">${ts}:</span> ${msg}</div>`;
       logOutput.scrollTop = logOutput.scrollHeight;
     }
-
     clearLogBtn.addEventListener('click', () => { logOutput.innerHTML = 'Log cleared.'; });
 
+    /* -------------------- UI Helpers -------------------- */
     function setUi(connected) {
       mintInput.disabled       = !connected;
       recipientsInput.disabled = !connected;
       batchSizeInput.disabled  = !connected;
       sendBtn.disabled         = !connected;
       sendBtn.textContent      = connected ? 'Prepare & Send Transactions' : 'Connect Wallet to Start';
-      hint.textContent         = connected ? 'Wallet connected. Enter mint & recipients.' : 'Please connect your wallet first to enable the form.';
+      hint.textContent         = connected
+        ? 'Wallet connected. Enter mint & recipients.'
+        : 'Please connect your wallet first to enable the form.';
     }
 
     function updateProgress() {
-      const total = allRecipients.length;
-      const done = completedRecipients.size;
+      const total  = allRecipients.length;
+      const done   = completedRecipients.size;
       const failed = failedRecipients.length;
       const pending = Math.max(0, total - done - failed);
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -205,7 +221,7 @@ CxtR...wxyz, 2"></textarea>
       updateProgress();
     }
 
-    // Persist/reload Custom RPC from localStorage
+    /* -------------------- Persistent Custom RPC -------------------- */
     document.addEventListener('DOMContentLoaded', () => {
       const savedRpc = localStorage.getItem('customRpcUrl');
       if (savedRpc && !rpcUrlInput.value) {
@@ -218,7 +234,7 @@ CxtR...wxyz, 2"></textarea>
       localStorage.setItem('customRpcUrl', rpcUrlInput.value.trim());
     });
 
-    // BigInt amount helpers
+    /* -------------------- Amount Helpers (BigInt) -------------------- */
     function decimalToAmount(str, decimals) {
       const s = String(str).trim();
       if (!/^\d+(?:\.\d+)?$/.test(s)) throw new Error(`Invalid amount: ${str}`);
@@ -226,16 +242,63 @@ CxtR...wxyz, 2"></textarea>
       const frac = (fracRaw + '0'.repeat(decimals)).slice(0, decimals);
       return BigInt(whole + frac);
     }
+
     function formatAmount(bi, decimals) {
       const s = bi.toString();
       if (decimals === 0) return s;
-      const pad = s.padStart(decimals+1,'0');
-      const whole = pad.slice(0,-decimals);
+      const pad = s.padStart(decimals + 1, '0');
+      const whole = pad.slice(0, -decimals);
       const frac  = pad.slice(-decimals).replace(/0+$/,'');
       return frac ? `${whole}.${frac}` : whole;
     }
 
-    // Connect wallet (Phantom)
+    /* -------------------- Recipients Normalization -------------------- */
+    // Robust normalization:
+    // - Convert CRLF to LF
+    // - Replace unicode space chars (NBSP, etc.) with regular space
+    // - Trim each line & remove blanks
+    // - Remove all internal whitespace from address portion
+    // - Trim amount portion
+    function normalizeRecipients(raw) {
+      if (!raw) return '';
+      return raw
+        .replace(/\r\n?/g, '\n')
+        .replace(/[\u00A0\u2000-\u200B\u202F\uFEFF]/g, ' ')
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0)
+        .map(l => {
+          const idx = l.indexOf(',');
+          if (idx === -1) return l; // malformed; parser will error later
+          const addrPart = l.slice(0, idx);
+            const amtPart  = l.slice(idx + 1);
+          const addr = addrPart.replace(/\s+/g, '');
+          const amt  = amtPart.trim();
+          return `${addr}, ${amt}`;
+        })
+        .join('\n');
+    }
+
+    function applyRecipientsNormalization() {
+      const before = recipientsInput.value;
+      const after  = normalizeRecipients(before);
+      if (before !== after) {
+        recipientsInput.value = after;
+        log('Recipients trimmed & normalized.', 'info');
+      }
+    }
+
+    // Passive auto-trim events
+    recipientsInput.addEventListener('blur', applyRecipientsNormalization);
+    recipientsInput.addEventListener('change', applyRecipientsNormalization);
+    recipientsInput.addEventListener('paste', () => setTimeout(applyRecipientsNormalization, 0));
+
+    // Manual trim button
+    if (trimRecipientsBtn) {
+      trimRecipientsBtn.addEventListener('click', applyRecipientsNormalization);
+    }
+
+    /* -------------------- Wallet Connect -------------------- */
     connectBtn.addEventListener('click', async () => {
       const injected = window.phantom?.solana || window.solana;
       if (!injected || !injected.isPhantom) {
@@ -246,7 +309,7 @@ CxtR...wxyz, 2"></textarea>
       try {
         provider = injected;
         log('Requesting wallet connection...', 'info');
-        const res = await provider.connect(); // popup
+        const res = await provider.connect();
         wallet = provider.publicKey || res?.publicKey;
         if (!wallet) throw new Error('No public key returned.');
         log('Wallet connected.', 'success');
@@ -276,12 +339,12 @@ CxtR...wxyz, 2"></textarea>
       sendBtn.textContent = 'Prepare & Send Transactions';
     }
 
-    // Core builders
+    /* -------------------- ATA / Transaction Builders -------------------- */
     async function ensureSenderAtaExists() {
       const info = await connection.getAccountInfo(senderAta, 'confirmed');
       if (info) return;
 
-      log("Sender ATA missing, creating...", 'info');
+      log('Sender ATA missing, creating...', 'info');
       const tx = new Transaction();
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
       tx.recentBlockhash = blockhash;
@@ -340,7 +403,7 @@ CxtR...wxyz, 2"></textarea>
     async function simulateTx(tx) {
       try {
         const sim = await connection.simulateTransaction(tx, { sigVerify: false });
-        return sim.value; // { err, logs, ... }
+        return sim.value;
       } catch (e) {
         return { err: e?.message || String(e), logs: [] };
       }
@@ -377,8 +440,7 @@ CxtR...wxyz, 2"></textarea>
         }
 
         const rpc = connection._rpcEndpoint || '';
-        const devnetParam = (rpc.includes('devnet') || document.getElementById('cluster-select').value.includes('devnet'))
-          ? '?cluster=devnet' : '';
+        const devnetParam = (rpc.includes('devnet') || clusterSelect.value.includes('devnet')) ? '?cluster=devnet' : '';
         log(`${attemptLabel}Confirmed: https://solscan.io/tx/${sig}${devnetParam}`, 'success');
         return true;
       } catch (e) {
@@ -428,7 +490,7 @@ CxtR...wxyz, 2"></textarea>
       await processBatchRecursive(right, depth + 1);
     }
 
-    // Send handler with progress & retry
+    /* -------------------- Send Handler -------------------- */
     sendBtn.addEventListener('click', async () => {
       if (!wallet) { log('Connect wallet first.', 'error'); return; }
 
@@ -441,9 +503,13 @@ CxtR...wxyz, 2"></textarea>
       const customRpc   = rpcUrlInput.value.trim();
       const rpcUrl      = customRpc || dropdownUrl;
 
-      const mintStr    = document.getElementById('token-mint-address').value.trim();
-      const listStr    = document.getElementById('recipients-list').value.trim();
-      const batchSize  = parseInt(document.getElementById('batch-size').value,10);
+      const mintStr = mintInput.value.trim();
+
+      // Safety normalization before parsing recipients (even if user never blurred or clicked Trim)
+      applyRecipientsNormalization();
+      const listStr = recipientsInput.value.trim();
+
+      const batchSize  = parseInt(batchSizeInput.value,10);
 
       if (!mintStr) { log('Mint address required.', 'error'); resetSendBtn(); return; }
       if (!listStr)  { log('Recipients list empty.', 'error'); resetSendBtn(); return; }
@@ -480,12 +546,13 @@ CxtR...wxyz, 2"></textarea>
         const recipients = [];
         for (const [i, raw] of lines.entries()) {
           const parts = raw.split(',').map(s => s.trim());
-          if (parts.length !== 2) throw new Error(`Invalid line #${i+1}: "${raw}" (expected "address, amount")`);
+          if (parts.length !== 2)
+            throw new Error(`Invalid line #${i+1}: "${raw}" (expected "address, amount")`);
           const [addrStr, amtStr] = parts;
           let pk;
           try { pk = new PublicKey(addrStr); }
           catch { throw new Error(`Bad address line #${i+1}: ${addrStr}`); }
-          const amount = decimalToAmount(amtStr, decimals);
+            const amount = decimalToAmount(amtStr, decimals);
           if (amount <= 0n) throw new Error(`Amount must be > 0 line #${i+1}`);
           recipients.push({ address: pk, amount });
         }
@@ -496,20 +563,20 @@ CxtR...wxyz, 2"></textarea>
         const total = recipients.reduce((s,r)=>s+r.amount, 0n);
         log(`Recipients: ${recipients.length}, Total: ${formatAmount(total, decimals)} tokens.`, 'info');
 
-        // Optional: check sender token balance
+        // Optional: sender token balance
         try {
           const bal = await connection.getTokenAccountBalance(senderAta, 'confirmed');
           log(`Sender balance (approx): ${bal?.value?.uiAmountString ?? '0'}`, 'info');
         } catch (_) {}
 
-        // Create batches of chosen size
+        // Create batches
         const batches = [];
         for (let i=0; i<recipients.length; i+=batchSize) {
           batches.push(recipients.slice(i, i+batchSize));
         }
         log(`Batches: ${batches.length} (size ${batchSize})`, 'info');
 
-        // Process each batch sequentially with recursive splitting on failure
+        // Process batches sequentially with recursive splitting
         for (let i=0; i<batches.length; i++) {
           const batch = batches[i].filter(r => !completedRecipients.has(r.address.toString()));
           if (batch.length === 0) continue;
