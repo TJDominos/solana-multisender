@@ -8,7 +8,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- 2. Load Solana Javascript Libraries -->
-    <!-- These are large files and may take a moment to load -->
     <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
     <script src="https://unpkg.com/@solana/spl-token@latest/lib/index.iife.min.js"></script>
     
@@ -76,8 +75,8 @@
                 </div>
 
                 <!-- 5. Action Button -->
-                <button id="send-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200" disabled>
-                    Prepare & Send Transactions
+                <button id="send-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 disabled:bg-gray-500" disabled>
+                    Connect Wallet to Start
                 </button>
             </div>
 
@@ -131,33 +130,54 @@
             logOutput.innerHTML = 'Log cleared.';
         });
 
-        // --- 1. Wallet Connection ---
+        // --- 1. Wallet Connection (UPDATED) ---
         connectWalletBtn.addEventListener('click', async () => {
-            if (window.solana && window.solana.isPhantom) {
+            // Check for the generic `window.solana` provider
+            if (window.solana) {
                 try {
                     provider = window.solana;
-                    await provider.connect({ onlyIfTrusted: false });
+                    
+                    // The simple, modern way to request a connection.
+                    // This will trigger the wallet pop-up.
+                    await provider.connect(); 
+                    
                     wallet = provider.publicKey;
+                    
+                    if (!wallet) {
+                         throw new Error("Wallet connection failed, public key not found.");
+                    }
+
                     log('Wallet connected!', 'success');
                     log(`Wallet address: ${wallet.toString()}`);
                     connectWalletBtn.textContent = `Connected: ${wallet.toString().substring(0, 4)}...${wallet.toString().substring(wallet.toString().length - 4)}`;
                     connectWalletBtn.classList.replace('bg-indigo-600', 'bg-slate-700');
-                    sendBtn.disabled = false;
                     
-                    provider.on('disconnect', () => {
-                        log('Wallet disconnected.', 'error');
-                        wallet = null;
-                        provider = null;
-                        connectWalletBtn.textContent = 'Connect Wallet';
-                        connectWalletBtn.classList.replace('bg-slate-700', 'bg-indigo-600');
-                        sendBtn.disabled = true;
-                    });
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = 'Prepare & Send Transactions';
+                    
+                    // Listen for disconnection
+                    if (provider.on) {
+                        provider.on('disconnect', () => {
+                            log('Wallet disconnected.', 'error');
+                            wallet = null;
+                            provider = null;
+                            connectWalletBtn.textContent = 'Connect Wallet';
+                            connectWalletBtn.classList.replace('bg-slate-700', 'bg-indigo-600');
+                            sendBtn.disabled = true;
+                            sendBtn.textContent = 'Connect Wallet to Start';
+                        });
+                    }
 
                 } catch (err) {
-                    log(`Error connecting wallet: ${err.message}`, 'error');
+                    let msg = err.message;
+                    if (err.code === 4001) { // User rejected the request
+                        msg = "Wallet connection rejected by user.";
+                    }
+                    log(`Error connecting wallet: ${msg}`, 'error');
+                    console.error(err); // Also log the full error to the console
                 }
             } else {
-                log('Phantom wallet not found. Please install it.', 'error');
+                log('Solana wallet not found. Please install Phantom or Solflare.', 'error');
                 window.open('https://phantom.app/', '_blank');
             }
         });
@@ -168,7 +188,7 @@
             sendBtn.textContent = 'Prepare & Send Transactions';
         }
 
-        // --- 2. Main Send Logic ---
+        // --- 2. Main Send Logic (No changes here, but included for completeness) ---
         sendBtn.addEventListener('click', async () => {
             if (!wallet || !provider) {
                 log('Please connect your wallet first.', 'error');
@@ -223,16 +243,20 @@
                 // --- C. Parse Recipients ---
                 log('Parsing recipients list...');
                 const lines = recipientsCsv.split('\n').filter(line => line.trim() !== '');
-                const recipients = lines.map(line => {
+                const recipients = [];
+                for (const line of lines) {
                     const [address, amount] = line.split(',').map(s => s.trim());
                     if (!address || !amount || isNaN(parseFloat(amount))) {
                         throw new Error(`Invalid line: ${line}`);
                     }
-                    return {
+                    if (parseFloat(amount) <= 0) {
+                         throw new Error(`Amount must be positive: ${line}`);
+                    }
+                    recipients.push({
                         address: new PublicKey(address),
                         amount: parseFloat(amount) * Math.pow(10, tokenDecimals), // Convert to smallest unit
-                    };
-                });
+                    });
+                }
                 log(`Parsed ${recipients.length} recipients.`);
                 const totalAmount = recipients.reduce((sum, r) => sum + r.amount, 0) / Math.pow(10, tokenDecimals);
                 log(`Total amount to send: ${totalAmount} tokens.`);
@@ -265,7 +289,7 @@
                             { publicKey: wallet }, // Payer
                             mintPubkey,
                             recipient.address,
-                            false,
+                            false, // allowOwnerOffCurve - set to false
                             'confirmed',
                             undefined,
                             TOKEN_PROGRAM_ID
@@ -277,7 +301,7 @@
                                 senderAta,
                                 destinationAta.address,
                                 wallet,
-                                recipient.amount,
+                                BigInt(recipient.amount.toString()), // Use BigInt for amounts
                                 [],
                                 TOKEN_PROGRAM_ID
                             )
