@@ -10,6 +10,7 @@
     <!-- 2. Load Solana Javascript Libraries -->
     <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
     <script src="https://unpkg.com/@solana/spl-token@latest/lib/index.iife.min.js"></script>
+    <!-- Note: spl-token v0.4+ includes Token-2022 support with TOKEN_2022_PROGRAM_ID -->
     
     <style>
         /* Custom scrollbar for the log */
@@ -101,7 +102,15 @@
     <script>
         // JS modules are loaded into the global scope by the script tags
         const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = solanaWeb3;
-        const { getOrCreateAssociatedTokenAccount, createTransferInstruction, TOKEN_PROGRAM_ID, getAssociatedTokenAddress } = splToken;
+        const { 
+            createTransferInstruction, 
+            createAssociatedTokenAccountInstruction,
+            TOKEN_PROGRAM_ID, 
+            TOKEN_2022_PROGRAM_ID,
+            getAssociatedTokenAddress,
+            ASSOCIATED_TOKEN_PROGRAM_ID,
+            getAccount
+        } = splToken;
 
         // UI Elements
         const connectWalletBtn = document.getElementById('connect-wallet-btn');
@@ -130,18 +139,18 @@
             logOutput.innerHTML = 'Log cleared.';
         });
 
-        // --- 1. Wallet Connection (UPDATED) ---
+        // --- 1. Wallet Connection (UPDATED for Phantom explicit popup) ---
         connectWalletBtn.addEventListener('click', async () => {
             // Check for the generic `window.solana` provider
             if (window.solana) {
                 try {
                     provider = window.solana;
                     
-                    // The simple, modern way to request a connection.
-                    // This will trigger the wallet pop-up.
-                    await provider.connect(); 
+                    // Explicitly request connection with popup (onlyIfTrusted: false forces popup)
+                    // This ensures Phantom Chrome extension shows the connection approval dialog
+                    const response = await provider.connect({ onlyIfTrusted: false }); 
                     
-                    wallet = provider.publicKey;
+                    wallet = response.publicKey || provider.publicKey;
                     
                     if (!wallet) {
                          throw new Error("Wallet connection failed, public key not found.");
@@ -224,6 +233,7 @@
             let mintPubkey;
             let tokenDecimals;
             let senderAta;
+            let tokenProgramId;
             
             try {
                 // --- B. Setup Connection & Get Token Info ---
@@ -231,13 +241,30 @@
                 connection = new Connection(clusterUrl, 'confirmed');
                 mintPubkey = new PublicKey(mintAddressStr);
 
-                log('Fetching token mint info...');
-                const mintInfo = await splToken.getMint(connection, mintPubkey);
+                log('Fetching token mint info and detecting program type...');
+                // First, try to get mint info from both programs
+                let mintInfo;
+                try {
+                    // Try TOKEN_PROGRAM_ID first (legacy SPL Token)
+                    mintInfo = await splToken.getMint(connection, mintPubkey, 'confirmed', TOKEN_PROGRAM_ID);
+                    tokenProgramId = TOKEN_PROGRAM_ID;
+                    log('Detected: Legacy SPL Token (TOKEN_PROGRAM_ID)');
+                } catch (err) {
+                    // If that fails, try TOKEN_2022_PROGRAM_ID
+                    try {
+                        mintInfo = await splToken.getMint(connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+                        tokenProgramId = TOKEN_2022_PROGRAM_ID;
+                        log('Detected: Token-2022 (TOKEN_2022_PROGRAM_ID)');
+                    } catch (err2) {
+                        throw new Error(`Invalid token mint address or unsupported token program: ${err2.message}`);
+                    }
+                }
+                
                 tokenDecimals = mintInfo.decimals;
                 log(`Token: ${mintAddressStr}, Decimals: ${tokenDecimals}`);
 
                 log("Getting sender's token account...");
-                senderAta = await getAssociatedTokenAddress(mintPubkey, wallet);
+                senderAta = await getAssociatedTokenAddress(mintPubkey, wallet, false, tokenProgramId);
                 log(`Sender ATA: ${senderAta.toString()}`);
                 
                 // --- C. Parse Recipients ---
@@ -282,28 +309,49 @@
                     for (const recipient of batch) {
                         log(`Preparing transfer for: ${recipient.address.toString()} (${recipient.amount / Math.pow(10, tokenDecimals)})`);
                         
-                        // This is the key: get or create the destination ATA
-                        // We pass our wallet as the payer for its creation
-                        const destinationAta = await getOrCreateAssociatedTokenAccount(
-                            connection,
-                            { publicKey: wallet }, // Payer
+                        // Calculate the destination ATA address
+                        const destinationAta = await getAssociatedTokenAddress(
                             mintPubkey,
                             recipient.address,
-                            false, // allowOwnerOffCurve - set to false
-                            'confirmed',
-                            undefined,
-                            TOKEN_PROGRAM_ID
+                            false, // allowOwnerOffCurve
+                            tokenProgramId,
+                            ASSOCIATED_TOKEN_PROGRAM_ID
                         );
+
+                        // Check if the destination ATA exists
+                        let ataExists = false;
+                        try {
+                            await getAccount(connection, destinationAta, 'confirmed', tokenProgramId);
+                            ataExists = true;
+                            log(`  ATA exists for ${recipient.address.toString().substring(0, 4)}...`);
+                        } catch (err) {
+                            // ATA doesn't exist, we'll create it
+                            log(`  Creating ATA for ${recipient.address.toString().substring(0, 4)}...`);
+                        }
+
+                        // If ATA doesn't exist, add create instruction
+                        if (!ataExists) {
+                            transaction.add(
+                                createAssociatedTokenAccountInstruction(
+                                    wallet, // payer
+                                    destinationAta, // ata address
+                                    recipient.address, // owner
+                                    mintPubkey, // mint
+                                    tokenProgramId,
+                                    ASSOCIATED_TOKEN_PROGRAM_ID
+                                )
+                            );
+                        }
 
                         // Add the transfer instruction
                         transaction.add(
                             createTransferInstruction(
                                 senderAta,
-                                destinationAta.address,
+                                destinationAta,
                                 wallet,
-                                BigInt(recipient.amount.toString()), // Use BigInt for amounts
+                                BigInt(Math.floor(recipient.amount)), // Use BigInt for amounts
                                 [],
-                                TOKEN_PROGRAM_ID
+                                tokenProgramId
                             )
                         );
                     }
