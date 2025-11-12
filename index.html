@@ -15,10 +15,10 @@
   </style>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans p-4 md:p-8 min-h-screen">
-  <div class="max-w-4xl mx-auto">
+  <div class="max-w-5xl mx-auto">
     <header class="mb-8">
       <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">Solana Token Multisender</h1>
-      <p class="text-slate-400">Connect your wallet, paste the mint address, and send to many recipients.</p>
+      <p class="text-slate-400">Connect your wallet, paste the mint address, and send SPL tokens to many recipients. Includes progress and retry logic.</p>
     </header>
 
     <div class="bg-yellow-900 border border-yellow-700 text-yellow-100 px-4 py-3 rounded-lg mb-6 shadow" role="alert">
@@ -51,7 +51,7 @@
 
         <div>
           <label for="batch-size" class="block text-sm font-medium text-slate-300 mb-1">3. Transfers per Transaction (Batch Size)</label>
-          <input id="batch-size" type="number" value="6" min="1" max="12" disabled
+          <input id="batch-size" type="number" value="5" min="1" max="12" disabled
                  class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2">
           <p class="text-xs text-slate-400 mt-1">If creating many ATAs, use 3–6 to avoid tx size limits.</p>
         </div>
@@ -71,6 +71,22 @@ CxtR...wxyz, 2"></textarea>
           class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition disabled:bg-gray-500">
           Connect Wallet to Start
         </button>
+
+        <!-- Progress -->
+        <div class="mt-4">
+          <div class="flex items-center justify-between text-sm text-slate-300 mb-1">
+            <span>Progress</span>
+            <span id="progress-label">0 / 0 (0%)</span>
+          </div>
+          <div id="progress-bar-wrapper" class="w-full bg-slate-700 h-3 rounded overflow-hidden">
+            <div id="progress-bar" class="bg-green-500 h-3 w-0 transition-all duration-300"></div>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mt-2">
+            <div>Completed: <span id="count-completed">0</span></div>
+            <div>Pending: <span id="count-pending">0</span></div>
+            <div>Failed: <span id="count-failed">0</span></div>
+          </div>
+        </div>
       </div>
 
       <!-- Right: log -->
@@ -87,10 +103,12 @@ CxtR...wxyz, 2"></textarea>
       </div>
     </div>
 
-    <footer class="text-center text-slate-500 mt-8 text-sm">Simplified ESM version.</footer>
+    <footer class="text-center text-slate-500 mt-8 text-sm">
+      Includes automatic retries with batch splitting and a progress bar.
+    </footer>
   </div>
 
-  <!-- Use ESM imports to avoid global splToken/solanaWeb3 issues -->
+  <!-- Use ESM imports to avoid global splToken issues -->
   <script type="module">
     import { Connection, PublicKey, Transaction } from 'https://esm.sh/@solana/web3.js@1.95.3';
     import {
@@ -114,9 +132,28 @@ CxtR...wxyz, 2"></textarea>
     const clearLogBtn     = document.getElementById('clear-log-btn');
     const logOutput       = document.getElementById('log-output');
 
+    // Progress UI
+    const progressBar     = document.getElementById('progress-bar');
+    const progressLabel   = document.getElementById('progress-label');
+    const countCompleted  = document.getElementById('count-completed');
+    const countPending    = document.getElementById('count-pending');
+    const countFailed     = document.getElementById('count-failed');
+
+    // State
     let provider = null; // Phantom
     let wallet   = null; // PublicKey
     let connection = null;
+
+    // Mint/session state set during send
+    let mintPubkey = null;
+    let tokenProgramId = TOKEN_PROGRAM_ID;
+    let decimals = 0;
+    let senderAta = null;
+
+    // Results
+    let allRecipients = [];
+    let completedRecipients = new Set();
+    let failedRecipients = [];
 
     function log(msg, type='info') {
       const ts = new Date().toLocaleTimeString();
@@ -136,17 +173,43 @@ CxtR...wxyz, 2"></textarea>
       hint.textContent         = connected ? 'Wallet connected. Enter mint & recipients.' : 'Please connect your wallet first to enable the form.';
     }
 
-    // Minimal format validation on blur (optional)
-    mintInput.addEventListener('blur', () => {
-      const v = mintInput.value.trim();
-      if (!v) return;
-      try {
-        const pk = new PublicKey(v);
-        log(`Mint format OK: ${pk.toString()}`);
-      } catch {
-        log('Invalid mint address (not Base58 Solana public key).', 'error');
-      }
-    });
+    function updateProgress() {
+      const total = allRecipients.length;
+      const done = completedRecipients.size;
+      const failed = failedRecipients.length;
+      const pending = Math.max(0, total - done - failed);
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      progressBar.style.width = pct + '%';
+      progressLabel.textContent = `${done} / ${total} (${pct}%)`;
+      countCompleted.textContent = String(done);
+      countPending.textContent   = String(pending);
+      countFailed.textContent    = String(failed);
+    }
+
+    function resetProgress() {
+      allRecipients = [];
+      completedRecipients = new Set();
+      failedRecipients = [];
+      updateProgress();
+    }
+
+    // BigInt amount helpers
+    function decimalToAmount(str, decimals) {
+      const s = String(str).trim();
+      if (!/^\d+(?:\.\d+)?$/.test(s)) throw new Error(`Invalid amount: ${str}`);
+      const [whole, fracRaw=''] = s.split('.');
+      const frac = (fracRaw + '0'.repeat(decimals)).slice(0, decimals);
+      return BigInt(whole + frac);
+    }
+    function formatAmount(bi, decimals) {
+      const s = bi.toString();
+      if (decimals === 0) return s;
+      const pad = s.padStart(decimals+1,'0');
+      const whole = pad.slice(0,-decimals);
+      const frac  = pad.slice(-decimals).replace(/0+$/,'');
+      return frac ? `${whole}.${frac}` : whole;
+    }
 
     // Connect wallet (Phantom)
     connectBtn.addEventListener('click', async () => {
@@ -189,30 +252,162 @@ CxtR...wxyz, 2"></textarea>
       sendBtn.textContent = 'Prepare & Send Transactions';
     }
 
-    // BigInt helpers
-    function decimalToAmount(str, decimals) {
-      const s = String(str).trim();
-      if (!/^\d+(?:\.\d+)?$/.test(s)) throw new Error(`Invalid amount: ${str}`);
-      const [whole, fracRaw=''] = s.split('.');
-      const frac = (fracRaw + '0'.repeat(decimals)).slice(0, decimals);
-      return BigInt(whole + frac);
-    }
-    function formatAmount(bi, decimals) {
-      const s = bi.toString();
-      if (decimals === 0) return s;
-      const pad = s.padStart(decimals+1,'0');
-      const whole = pad.slice(0,-decimals);
-      const frac  = pad.slice(-decimals).replace(/0+$/,'');
-      return frac ? `${whole}.${frac}` : whole;
+    // Core builders
+    async function ensureSenderAtaExists() {
+      const info = await connection.getAccountInfo(senderAta, 'confirmed');
+      if (info) return;
+
+      log("Sender ATA missing, creating...", 'info');
+      const tx = new Transaction();
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = wallet;
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          wallet, senderAta, wallet, mintPubkey, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+      );
+      const signed = await provider.signTransaction(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight:false });
+      log(`Sender ATA creation tx: ${sig}`, 'success');
+      await connection.confirmTransaction({ signature:sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      log('Sender ATA confirmed.', 'success');
     }
 
-    // Send logic
+    async function buildBatchTx(batch) {
+      const tx = new Transaction();
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = wallet;
+
+      let ataCreations = 0;
+
+      for (const r of batch) {
+        const destAta = await getAssociatedTokenAddress(
+          mintPubkey, r.address, false, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+        const destInfo = await connection.getAccountInfo(destAta, 'confirmed');
+        if (!destInfo) {
+          tx.add(
+            createAssociatedTokenAccountInstruction(
+              wallet, destAta, r.address, mintPubkey, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
+            )
+          );
+          ataCreations++;
+        }
+        tx.add(
+          createTransferCheckedInstruction(
+            senderAta, mintPubkey, destAta, wallet, r.amount, decimals, [], tokenProgramId
+          )
+        );
+      }
+
+      return { tx, ataCreations, lastValidBlockHeight };
+    }
+
+    async function confirmSig(signature, blockhash, lastValidBlockHeight, commitment='confirmed') {
+      const res = await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        commitment
+      );
+      return !res?.value?.err;
+    }
+
+    async function simulateTx(tx) {
+      try {
+        const sim = await connection.simulateTransaction(tx, { sigVerify: false });
+        return sim.value; // { err, logs, ... }
+      } catch (e) {
+        return { err: e?.message || String(e), logs: [] };
+      }
+    }
+
+    // Try send a batch as a single atomic tx. Returns true on success, false on failure.
+    async function trySendBatch(batch, { simulateBefore=false, attemptLabel='' } = {}) {
+      try {
+        const { tx, ataCreations, lastValidBlockHeight } = await buildBatchTx(batch);
+        log(`${attemptLabel}Prepared batch of ${batch.length}. New ATAs: ${ataCreations}`, 'info');
+
+        if (simulateBefore) {
+          const sim = await simulateTx(tx);
+          if (sim?.err) {
+            log(`${attemptLabel}Simulation error: ${JSON.stringify(sim.err)}`, 'error');
+            if (sim?.logs?.length) log(sim.logs.join('\n'), 'error');
+            return false;
+          } else {
+            log(`${attemptLabel}Simulation OK.`, 'success');
+          }
+        }
+
+        log(`${attemptLabel}Signing...`, 'info');
+        const signed = await provider.signTransaction(tx);
+
+        log(`${attemptLabel}Sending...`, 'info');
+        const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight:false });
+        log(`${attemptLabel}TX sent: ${sig}`, 'success');
+
+        const ok = await confirmSig(sig, tx.recentBlockhash, tx.lastValidBlockHeight ?? lastValidBlockHeight, 'confirmed');
+        if (!ok) {
+          log(`${attemptLabel}Confirmation reported failure.`, 'error');
+          return false;
+        }
+
+        const devnetParam = clusterSelect.value.includes('devnet') ? '?cluster=devnet' : '';
+        log(`${attemptLabel}Confirmed: https://solscan.io/tx/${sig}${devnetParam}`, 'success');
+        return true;
+      } catch (e) {
+        log(`${attemptLabel}Batch send error: ${e?.message || String(e)}`, 'error');
+        return false;
+      }
+    }
+
+    // Recursive splitter: on failure, split batch into halves to isolate failing recipients
+    async function processBatchRecursive(batch, depth=0) {
+      const label = depth ? `[Depth ${depth}] ` : '';
+      const ok = await trySendBatch(batch, { simulateBefore: false, attemptLabel: label });
+      if (ok) {
+        // Mark all recipients in this batch as completed
+        for (const r of batch) completedRecipients.add(r.address.toString());
+        updateProgress();
+        return;
+      }
+
+      // If sending the whole batch failed, try a second attempt with simulation (fresh blockhash).
+      const okRetry = await trySendBatch(batch, { simulateBefore: true, attemptLabel: `${label}[Retry] ` });
+      if (okRetry) {
+        for (const r of batch) completedRecipients.add(r.address.toString());
+        updateProgress();
+        return;
+      }
+
+      if (batch.length === 1) {
+        // Single recipient still failing — mark as failed
+        const r = batch[0];
+        failedRecipients.push(r);
+        log(`${label}Recipient failed permanently: ${r.address.toString()}`, 'error');
+        updateProgress();
+        return;
+      }
+
+      // Split and try halves
+      const mid = Math.floor(batch.length / 2);
+      const left = batch.slice(0, mid);
+      const right = batch.slice(mid);
+
+      log(`${label}Splitting batch (${batch.length}) into ${left.length} + ${right.length} to isolate failures...`, 'error');
+
+      await processBatchRecursive(left, depth + 1);
+      await processBatchRecursive(right, depth + 1);
+    }
+
+    // Send handler with progress & retry
     sendBtn.addEventListener('click', async () => {
       if (!wallet) { log('Connect wallet first.', 'error'); return; }
 
       sendBtn.disabled = true;
       sendBtn.textContent = 'Processing...';
-      log('Starting bulk send process...');
+      resetProgress();
+      log('Starting multisend with retries...', 'info');
 
       const clusterUrl = clusterSelect.value;
       const mintStr    = mintInput.value.trim();
@@ -225,61 +420,36 @@ CxtR...wxyz, 2"></textarea>
         log('Batch size 1–12 required.', 'error'); resetSendBtn(); return;
       }
 
-      let mintPubkey, tokenProgramId = TOKEN_PROGRAM_ID, decimals = 0, senderAta;
-
       try {
-        log(`Connecting RPC: ${clusterUrl}`);
+        // Setup connection and mint info
+        log(`RPC: ${clusterUrl}`, 'info');
         connection = new Connection(clusterUrl, 'confirmed');
         mintPubkey = new PublicKey(mintStr);
 
-        // Detect token program by mint owner
         const mintAcct = await connection.getAccountInfo(mintPubkey, 'confirmed');
         if (!mintAcct) throw new Error('Mint account not found on this cluster.');
         const token2022 = TOKEN_2022_PROGRAM_ID ?? TOKEN_PROGRAM_ID;
         tokenProgramId = mintAcct.owner?.toString() === token2022.toString() ? token2022 : TOKEN_PROGRAM_ID;
-        log(`Program: ${tokenProgramId.toString() === TOKEN_PROGRAM_ID.toString() ? 'SPL Token (legacy)' : 'Token-2022'}`);
+        log(`Program: ${tokenProgramId.toString() === TOKEN_PROGRAM_ID.toString() ? 'SPL Token (legacy)' : 'Token-2022'}`, 'info');
 
         const mintInfo = await getMint(connection, mintPubkey, 'confirmed', tokenProgramId);
         decimals = mintInfo.decimals;
-        log(`Decimals: ${decimals}`);
+        log(`Decimals: ${decimals}`, 'info');
 
-        // Derive sender ATA
+        // Sender ATA
         senderAta = await getAssociatedTokenAddress(
-          mintPubkey,
-          wallet,
-          false,
-          tokenProgramId,
-          ASSOCIATED_TOKEN_PROGRAM_ID
+          mintPubkey, wallet, false, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
         );
-        log(`Sender ATA: ${senderAta.toString()}`);
+        log(`Sender ATA: ${senderAta.toString()}`, 'info');
 
-        // Create sender ATA if missing
-        const senderInfo = await connection.getAccountInfo(senderAta, 'confirmed');
-        if (!senderInfo) {
-          log('Sender ATA missing, creating...');
-          const txCreate = new Transaction();
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-          txCreate.recentBlockhash = blockhash;
-          txCreate.feePayer = wallet;
-          txCreate.add(
-            createAssociatedTokenAccountInstruction(
-              wallet, senderAta, wallet, mintPubkey, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
-            )
-          );
-          const signedCreate = await provider.signTransaction(txCreate);
-          const sigCreate = await connection.sendRawTransaction(signedCreate.serialize(), { skipPreflight:false });
-          log(`Sender ATA creation tx: ${sigCreate}`, 'success');
-          await connection.confirmTransaction({ signature:sigCreate, blockhash, lastValidBlockHeight }, 'confirmed');
-          log('Sender ATA confirmed.', 'success');
-        }
+        await ensureSenderAtaExists();
 
         // Parse recipients
-        log('Parsing recipients...');
         const lines = listStr.split('\n').filter(l => l.trim() !== '');
         const recipients = [];
         for (const [i, raw] of lines.entries()) {
           const parts = raw.split(',').map(s => s.trim());
-          if (parts.length !== 2) throw new Error(`Invalid line #${i+1}: "${raw}"`);
+          if (parts.length !== 2) throw new Error(`Invalid line #${i+1}: "${raw}" (expected "address, amount")`);
           const [addrStr, amtStr] = parts;
           let pk;
           try { pk = new PublicKey(addrStr); }
@@ -288,64 +458,58 @@ CxtR...wxyz, 2"></textarea>
           if (amount <= 0n) throw new Error(`Amount must be > 0 line #${i+1}`);
           recipients.push({ address: pk, amount });
         }
-        log(`Recipients parsed: ${recipients.length}`);
+
+        allRecipients = recipients.slice();
+        updateProgress();
+
         const total = recipients.reduce((s,r)=>s+r.amount, 0n);
-        log(`Total tokens: ${formatAmount(total, decimals)}`);
+        log(`Recipients: ${recipients.length}, Total: ${formatAmount(total, decimals)} tokens.`, 'info');
 
-        // Batch
+        // Optional: check sender token balance
+        try {
+          const bal = await connection.getTokenAccountBalance(senderAta, 'confirmed');
+          log(`Sender balance (approx): ${bal?.value?.uiAmountString ?? '0'}`, 'info');
+        } catch {}
+
+        // Create batches of chosen size
         const batches = [];
-        for (let i=0;i<recipients.length;i+=batchSize) batches.push(recipients.slice(i,i+batchSize));
-        log(`Batches: ${batches.length}`);
+        for (let i=0; i<recipients.length; i+=batchSize) {
+          batches.push(recipients.slice(i, i+batchSize));
+        }
+        log(`Batches: ${batches.length} (size ${batchSize})`, 'info');
 
-        // Process batches
-        for (let i=0;i<batches.length;i++) {
-          const batch = batches[i];
-          log(`-- Batch ${i+1}/${batches.length} --`);
-          const tx = new Transaction();
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-          tx.recentBlockhash = blockhash;
-          tx.feePayer = wallet;
+        // Process each batch sequentially with recursive splitting on failure
+        for (let i=0; i<batches.length; i++) {
+          const batch = batches[i].filter(r => !completedRecipients.has(r.address.toString()));
+          if (batch.length === 0) continue;
 
-          for (const r of batch) {
-            const destAta = await getAssociatedTokenAddress(
-              mintPubkey, r.address, false, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
-            );
-            const destInfo = await connection.getAccountInfo(destAta, 'confirmed');
-            if (!destInfo) {
-              tx.add(
-                createAssociatedTokenAccountInstruction(
-                  wallet, destAta, r.address, mintPubkey, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
-                )
-              );
-              log(`  + Create ATA for ${r.address.toString().slice(0,4)}...`);
-            }
-            tx.add(
-              createTransferCheckedInstruction(
-                senderAta, mintPubkey, destAta, wallet, r.amount, decimals, [], tokenProgramId
-              )
-            );
-            log(`  + Transfer ${formatAmount(r.amount, decimals)} to ${r.address.toString().slice(0,4)}...`);
-          }
-
-          log('Signing batch transaction...');
-          const signed = await provider.signTransaction(tx);
-          log('Sending batch transaction...');
-          const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight:false });
-          log(`TX sent: ${sig}`, 'success');
-          log('Confirming...');
-          const conf = await connection.confirmTransaction({ signature:sig, blockhash, lastValidBlockHeight }, 'confirmed');
-          if (conf?.value?.err) throw new Error(`Failure: ${JSON.stringify(conf.value.err)}`);
-          const devnetParam = clusterUrl.includes('devnet') ? '?cluster=devnet' : '';
-          log(`Batch ${i+1} confirmed. Explorer: https://solscan.io/tx/${sig}${devnetParam}`, 'success');
+          log(`--- Batch ${i+1}/${batches.length} (recipients: ${batch.length}) ---`, 'info');
+          await processBatchRecursive(batch, 0);
         }
 
-        log('All batches complete.', 'success');
+        // Final reconciliation log
+        log(`Completed: ${completedRecipients.size} / ${allRecipients.length}`, 'success');
+        if (failedRecipients.length > 0) {
+          log(`Failed recipients: ${failedRecipients.length}`, 'error');
+          for (const r of failedRecipients) {
+            log(` - ${r.address.toString()} (${formatAmount(r.amount, decimals)})`, 'error');
+          }
+        } else {
+          log('All recipients processed successfully.', 'success');
+        }
+
       } catch (err) {
         log(`Error: ${err?.message || String(err)}`, 'error');
-        if (err?.stack) log(err.stack,'error');
+        if (err?.stack) log(err.stack, 'error');
       } finally {
         resetSendBtn();
       }
+    });
+
+    // Initialize UI state on load
+    document.addEventListener('DOMContentLoaded', () => {
+      setUi(false);
+      resetProgress();
     });
   </script>
 </body>
