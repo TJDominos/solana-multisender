@@ -371,7 +371,7 @@ CxtR...wxyz, 2"></textarea>
 
       for (const r of batch) {
         const destAta = await getAssociatedTokenAddress(
-          mintPubkey, r.address, false, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
+          mintPubkey, r.address, true, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
         );
         const destInfo = await connection.getAccountInfo(destAta, 'confirmed');
         if (!destInfo) {
@@ -535,7 +535,7 @@ CxtR...wxyz, 2"></textarea>
 
         // Sender ATA
         senderAta = await getAssociatedTokenAddress(
-          mintPubkey, wallet, false, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
+          mintPubkey, wallet, true, tokenProgramId, ASSOCIATED_TOKEN_PROGRAM_ID
         );
         log(`Sender ATA: ${senderAta.toString()}`, 'info');
 
