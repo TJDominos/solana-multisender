@@ -2,10 +2,10 @@
   "rpc": {
     "mainnet": [
       {
-        "id": "mainnet-solana-official",
-        "label": "Solana Official (Mainnet)",
-        "url": "https://api.mainnet-beta.solana.com",
-        "apiKey": "",
+        "id": "mainnet-Nodereal",
+        "label": "Nodereal (Mainnet)",
+        "url": "https://bsc-mainnet.nodereal.io/v1/",
+        "apiKey": "e5f75b6438b649c098f3f01f2892a492",
         "enabled": true,
         "isDefault": true
       },
@@ -18,10 +18,10 @@
         "isDefault": true
       },
       {
-        "id": "mainnet-quicknode",
-        "label": "QuickNode (Mainnet - Demo)",
-        "url": "https://api.mainnet-beta.solana.com",
-        "apiKey": "",
+        "id": "mainnet-Tatum",
+        "label": "Tatum(Mainnet)",
+        "url": "https://solana-mainnet.gateway.tatum.io/",
+        "apiKey": "t-6919e1f73b9bb09e10628f3d-215c92a1167e401388dc0302",
         "enabled": true,
         "isDefault": true
       }
