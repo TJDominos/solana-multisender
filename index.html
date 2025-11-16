@@ -112,6 +112,21 @@ CxtR...wxyz, 2"></textarea>
       <!-- Right: log -->
       <div class="bg-slate-800 p-6 rounded-lg shadow flex flex-col">
         <h2 class="text-lg font-semibold mb-2 text-white">Log & Progress</h2>
+        
+        <!-- Cross-RPC Verification Info -->
+        <div class="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-3 text-xs">
+          <div class="flex items-start gap-2">
+            <span class="text-blue-400 font-bold text-sm">🔍</span>
+            <div class="text-blue-200">
+              <strong>Cross-RPC Verification:</strong> Each transaction is verified on a backup RPC provider for added security.
+              <span class="text-blue-300 block mt-1">
+                ✅ Green = Backup RPC confirms transaction | 
+                ⚠️ Yellow = Warning (may need time to sync)
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div id="log-output"
              class="w-full h-96 bg-slate-900 rounded-lg p-4 font-mono text-sm text-slate-300 overflow-y-auto whitespace-pre-wrap break-words">
           Welcome! Connect your wallet to begin.
@@ -172,6 +187,9 @@ CxtR...wxyz, 2"></textarea>
     let decimals = 0;
     let senderAta = null;
 
+    // Backup RPC connections for cross-RPC verification
+    let backupConnection = null;
+
     // Results
     let allRecipients = [];
     let completedRecipients = new Set();
@@ -182,6 +200,7 @@ CxtR...wxyz, 2"></textarea>
       const ts = new Date().toLocaleTimeString();
       const color = type === 'error' ? 'text-red-400'
                   : type === 'success' ? 'text-green-400'
+                  : type === 'warning' ? 'text-yellow-400'
                   : 'text-slate-300';
       logOutput.innerHTML += `\n<div class="${color}"><span class="text-slate-500">${ts}:</span> ${msg}</div>`;
       logOutput.scrollTop = logOutput.scrollHeight;
@@ -400,6 +419,65 @@ CxtR...wxyz, 2"></textarea>
       return !res?.value?.err;
     }
 
+    /* -------------------- Cross-RPC Verification -------------------- */
+    // Get the appropriate backup RPC URL based on current cluster
+    function getBackupRpcUrl() {
+      const rpc = connection._rpcEndpoint || '';
+      const isDevnet = rpc.includes('devnet') || clusterSelect.value.includes('devnet');
+      return isDevnet 
+        ? 'https://api.devnet.solana.com'
+        : 'https://api.mainnet-beta.solana.com';
+    }
+
+    // Verify transaction signature on a backup RPC provider
+    async function verifyTransactionOnBackupRpc(signature) {
+      const backupUrl = getBackupRpcUrl();
+      try {
+        log(`🔍 Cross-RPC Verification: Querying backup RPC (${backupUrl})...`, 'info');
+        
+        // Create a temporary connection to backup RPC
+        const backupConn = new Connection(backupUrl, 'finalized');
+        
+        // Query the signature status with finalized commitment
+        const status = await backupConn.getSignatureStatus(signature, {
+          searchTransactionHistory: true
+        });
+
+        if (!status || !status.value) {
+          log(`⚠️ Cross-RPC Verification: Backup RPC does not recognize transaction ${signature}`, 'warning');
+          log(`ℹ️ This may be normal if the backup RPC hasn't synced yet. Wait a moment and check manually.`, 'warning');
+          return false;
+        }
+
+        const confirmations = status.value.confirmations;
+        const confirmationStatus = status.value.confirmationStatus;
+        const hasError = status.value.err;
+
+        if (hasError) {
+          log(`❌ Cross-RPC Verification: Backup RPC shows transaction error: ${JSON.stringify(hasError)}`, 'error');
+          return false;
+        }
+
+        if (confirmationStatus === 'finalized') {
+          log(`✅ Cross-RPC Verification: Transaction confirmed on backup RPC (finalized)`, 'success');
+          return true;
+        } else if (confirmationStatus === 'confirmed' || confirmationStatus === 'processed') {
+          log(`✓ Cross-RPC Verification: Transaction found on backup RPC (${confirmationStatus}, ${confirmations} confirmations)`, 'success');
+          log(`ℹ️ Transaction is not yet finalized on backup RPC but is recognized.`, 'info');
+          return true;
+        } else {
+          log(`⚠️ Cross-RPC Verification: Unexpected status: ${confirmationStatus}`, 'warning');
+          return false;
+        }
+
+      } catch (err) {
+        const msg = err?.message || String(err);
+        log(`⚠️ Cross-RPC Verification: Error querying backup RPC: ${msg}`, 'warning');
+        log(`ℹ️ This doesn't mean the transaction failed - it may be a temporary network issue.`, 'info');
+        return false;
+      }
+    }
+
     async function simulateTx(tx) {
       try {
         const sim = await connection.simulateTransaction(tx, { sigVerify: false });
@@ -442,6 +520,10 @@ CxtR...wxyz, 2"></textarea>
         const rpc = connection._rpcEndpoint || '';
         const devnetParam = (rpc.includes('devnet') || clusterSelect.value.includes('devnet')) ? '?cluster=devnet' : '';
         log(`${attemptLabel}Confirmed: https://solscan.io/tx/${sig}${devnetParam}`, 'success');
+
+        // Perform cross-RPC verification
+        await verifyTransactionOnBackupRpc(sig);
+
         return true;
       } catch (e) {
         const msg = e?.message || String(e);
@@ -520,6 +602,13 @@ CxtR...wxyz, 2"></textarea>
       try {
         log(`RPC: ${rpcUrl}`, 'info');
         connection = new Connection(rpcUrl, 'confirmed');
+        
+        // Log backup RPC info
+        const backupRpcUrl = rpcUrl.includes('devnet') || dropdownUrl.includes('devnet')
+          ? 'https://api.devnet.solana.com'
+          : 'https://api.mainnet-beta.solana.com';
+        log(`Backup RPC for verification: ${backupRpcUrl}`, 'info');
+        
         mintPubkey = new PublicKey(mintStr);
 
         // Detect token program by mint owner
