@@ -39,14 +39,7 @@
             <option value="https://api.mainnet-beta.solana.com">Mainnet-beta (Public)</option>
           </select>
 
-          <!-- Custom RPC URL -->
-          <label for="rpc-url" class="block text-sm font-medium text-slate-300 mt-3">Optional: Custom RPC URL (recommended for Mainnet)</label>
-          <input id="rpc-url" type="text"
-                 value="https://mainnet.helius-rpc.com/?api-key=fda76be1-7d09-4880-80db-837831934193"
-                 placeholder="e.g. https://rpc.helius.xyz/?api-key=YOUR_KEY"
-                 class="w-full bg-slate-700 text-white border border-slate-600 rounded-lg p-2"
-                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" inputmode="url">
-          <p class="text-xs text-slate-400 mt-1">If provided, this overrides the dropdown. Many public endpoints block browser requests; use your provider URL.</p>
+          <p class="text-xs text-slate-400 mt-2">Primary RPC for sending is selected in the RPC Manager below. The dropdown here sets the cluster only.</p>
 
           <p id="connect-hint" class="text-xs text-slate-400 mt-2">Please connect your wallet first to enable the form.</p>
         </div>
@@ -91,9 +84,14 @@
 
             <!-- Add Endpoint Form -->
             <div class="border-t border-slate-700 pt-3">
-              <button id="toggle-add-endpoint" class="text-sm text-indigo-400 hover:text-indigo-300">
-                + Add Custom Endpoint
-              </button>
+              <div class="flex justify-between items-center mb-2">
+                <button id="toggle-add-endpoint" class="text-sm text-indigo-400 hover:text-indigo-300">
+                  + Add Custom Endpoint
+                </button>
+                <button id="reset-endpoints-btn" class="text-sm text-slate-400 hover:text-slate-200">
+                  Reset to Defaults
+                </button>
+              </div>
               <div id="add-endpoint-form" class="mt-2 space-y-2" style="display: none;">
                 <input id="new-endpoint-label" type="text" placeholder="Endpoint Label (e.g., 'My Helius Node')"
                        class="w-full bg-slate-700 text-white border border-slate-600 rounded p-2 text-sm">
@@ -224,7 +222,6 @@ CxtR...wxyz, 2"></textarea>
     /* -------------------- UI References -------------------- */
     const connectBtn      = document.getElementById('connect-wallet-btn');
     const clusterSelect   = document.getElementById('cluster-select');
-    const rpcUrlInput     = document.getElementById('rpc-url');
     const mintInput       = document.getElementById('token-mint-address');
     const recipientsInput = document.getElementById('recipients-list');
     const trimRecipientsBtn = document.getElementById('trim-recipients-btn');
@@ -290,6 +287,12 @@ CxtR...wxyz, 2"></textarea>
     // Minimum consensus threshold (how many endpoints must agree)
     let minConsensusThreshold = 2;
 
+    // Primary endpoint selection per cluster (stored by endpoint id)
+    let primaryEndpointByCluster = { mainnet: null, devnet: null, testnet: null };
+
+    // Editing state for inline edit mode
+    let editingEndpointIndex = null;
+
     /* -------------------- RPC Endpoint Functions -------------------- */
     
     // Load endpoints from localStorage or initialize with defaults
@@ -325,22 +328,32 @@ CxtR...wxyz, 2"></textarea>
       if (storedThreshold) {
         minConsensusThreshold = parseInt(storedThreshold, 10) || 2;
       }
+
+      // Load primary endpoint selections
+      const storedPrimary = localStorage.getItem('primaryEndpointByCluster');
+      if (storedPrimary) {
+        try {
+          primaryEndpointByCluster = JSON.parse(storedPrimary);
+        } catch (e) {
+          console.error('Failed to parse stored primary endpoints:', e);
+          primaryEndpointByCluster = { mainnet: null, devnet: null, testnet: null };
+        }
+      }
     }
 
     // Save endpoints to localStorage
     function saveRpcEndpoints() {
       localStorage.setItem('rpcEndpointsConfig', JSON.stringify(userRpcEndpoints));
       localStorage.setItem('minConsensusThreshold', minConsensusThreshold.toString());
+      localStorage.setItem('primaryEndpointByCluster', JSON.stringify(primaryEndpointByCluster));
     }
 
-    // Get current cluster name based on connection URL
+    // Get current cluster name based on dropdown selection
     function getCurrentCluster() {
       const dropdownUrl = clusterSelect.value;
-      const customRpc = rpcUrlInput.value.trim();
-      const rpcUrl = customRpc || dropdownUrl;
       
-      if (rpcUrl.includes('devnet')) return 'devnet';
-      if (rpcUrl.includes('testnet')) return 'testnet';
+      if (dropdownUrl.includes('devnet')) return 'devnet';
+      if (dropdownUrl.includes('testnet')) return 'testnet';
       return 'mainnet';
     }
 
@@ -369,6 +382,41 @@ CxtR...wxyz, 2"></textarea>
       return key.slice(0, 4) + '••••' + key.slice(-4);
     }
 
+    // Initialize connection using primary endpoint or fallback
+    function initializeConnection() {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster] || [];
+      
+      // Find primary endpoint
+      const primaryId = primaryEndpointByCluster[cluster];
+      let selectedEndpoint = null;
+      
+      if (primaryId) {
+        selectedEndpoint = endpoints.find(ep => ep.id === primaryId);
+      }
+      
+      // Fallback to first enabled endpoint
+      if (!selectedEndpoint) {
+        selectedEndpoint = endpoints.find(ep => ep.enabled);
+      }
+      
+      // Final fallback to first endpoint
+      if (!selectedEndpoint && endpoints.length > 0) {
+        selectedEndpoint = endpoints[0];
+      }
+      
+      if (selectedEndpoint) {
+        const url = buildEndpointUrl(selectedEndpoint);
+        connection = new Connection(url, 'confirmed');
+        log(`Primary RPC set to: ${selectedEndpoint.label}`, 'info');
+      } else {
+        // No endpoints configured, fall back to dropdown selection
+        const dropdownUrl = clusterSelect.value;
+        connection = new Connection(dropdownUrl, 'confirmed');
+        log(`Using default RPC from dropdown: ${dropdownUrl}`, 'info');
+      }
+    }
+
     // Render endpoint list UI
     function renderEndpointsList() {
       const cluster = getCurrentCluster();
@@ -380,38 +428,86 @@ CxtR...wxyz, 2"></textarea>
         return;
       }
 
+      const primaryId = primaryEndpointByCluster[cluster];
+
       container.innerHTML = endpoints.map((ep, idx) => {
-        const displayUrl = ep.url.length > 50 ? ep.url.slice(0, 47) + '...' : ep.url;
-        const hasApiKey = ep.apiKey && ep.apiKey.trim() !== '';
-        const apiKeyDisplay = hasApiKey ? obfuscateApiKey(ep.apiKey) : 'None';
+        const isEditing = editingEndpointIndex === idx;
+        const isPrimary = ep.id === primaryId;
         
-        return `
-          <div class="bg-slate-700 rounded p-3 flex items-start justify-between gap-2">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-1">
-                <input type="checkbox" id="endpoint-enabled-${idx}" 
-                       ${ep.enabled ? 'checked' : ''}
-                       class="rounded bg-slate-600 border-slate-500"
-                       onchange="toggleEndpointEnabled(${idx})">
-                <label for="endpoint-enabled-${idx}" class="text-sm font-medium text-white truncate">
-                  ${ep.label}
-                </label>
-                ${ep.isDefault ? '<span class="text-xs bg-blue-600 text-white px-1 rounded">Default</span>' : ''}
-              </div>
-              <div class="text-xs text-slate-400 truncate" title="${ep.url}">
-                URL: ${displayUrl}
-              </div>
-              <div class="text-xs text-slate-400">
-                API Key: ${apiKeyDisplay}
+        if (isEditing) {
+          // Edit mode
+          const escapeHtml = (str) => {
+            const div = document.createElement('div');
+            div.textContent = str || '';
+            return div.innerHTML;
+          };
+          
+          return `
+            <div class="bg-slate-700 rounded p-3">
+              <div class="space-y-2">
+                <input id="edit-label-${idx}" type="text" value="${escapeHtml(ep.label)}" 
+                       placeholder="Label"
+                       class="w-full bg-slate-600 text-white border border-slate-500 rounded p-2 text-sm">
+                <input id="edit-url-${idx}" type="text" value="${escapeHtml(ep.url)}" 
+                       placeholder="RPC URL"
+                       class="w-full bg-slate-600 text-white border border-slate-500 rounded p-2 text-sm">
+                <input id="edit-apikey-${idx}" type="text" value="${escapeHtml(ep.apiKey || '')}" 
+                       placeholder="API Key (optional)"
+                       class="w-full bg-slate-600 text-white border border-slate-500 rounded p-2 text-sm">
+                <div class="flex gap-2">
+                  <button onclick="saveEndpoint(${idx})" 
+                          class="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm py-1 px-3 rounded transition">
+                    Save
+                  </button>
+                  <button onclick="cancelEditEndpoint()" 
+                          class="flex-1 bg-slate-600 hover:bg-slate-700 text-white text-sm py-1 px-3 rounded transition">
+                    Cancel
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="flex flex-col gap-1">
-              ${idx > 0 ? `<button onclick="moveEndpointUp(${idx})" class="text-slate-400 hover:text-white text-xs" title="Move up">↑</button>` : '<span class="text-xs invisible">↑</span>'}
-              ${idx < endpoints.length - 1 ? `<button onclick="moveEndpointDown(${idx})" class="text-slate-400 hover:text-white text-xs" title="Move down">↓</button>` : '<span class="text-xs invisible">↓</span>'}
-              ${!ep.isDefault ? `<button onclick="removeEndpoint(${idx})" class="text-red-400 hover:text-red-300 text-xs" title="Remove">✕</button>` : '<span class="text-xs invisible">✕</span>'}
+          `;
+        } else {
+          // Display mode
+          const displayUrl = ep.url.length > 50 ? ep.url.slice(0, 47) + '...' : ep.url;
+          const hasApiKey = ep.apiKey && ep.apiKey.trim() !== '';
+          const apiKeyDisplay = hasApiKey ? obfuscateApiKey(ep.apiKey) : 'None';
+          
+          return `
+            <div class="bg-slate-700 rounded p-3 flex items-start justify-between gap-2">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <input type="radio" name="primary-endpoint-${cluster}" 
+                         ${isPrimary ? 'checked' : ''}
+                         onchange="setPrimaryEndpoint(${idx})"
+                         class="rounded bg-slate-600 border-slate-500"
+                         title="Set as Primary">
+                  <input type="checkbox" id="endpoint-enabled-${idx}" 
+                         ${ep.enabled ? 'checked' : ''}
+                         class="rounded bg-slate-600 border-slate-500"
+                         onchange="toggleEndpointEnabled(${idx})">
+                  <label for="endpoint-enabled-${idx}" class="text-sm font-medium text-white truncate">
+                    ${ep.label}
+                  </label>
+                  ${ep.isDefault ? '<span class="text-xs bg-blue-600 text-white px-1 rounded">Default</span>' : ''}
+                  ${isPrimary ? '<span class="text-xs bg-green-600 text-white px-1 rounded">Primary</span>' : ''}
+                </div>
+                <div class="text-xs text-slate-400 truncate" title="${ep.url}">
+                  URL: ${displayUrl}
+                </div>
+                <div class="text-xs text-slate-400">
+                  API Key: ${apiKeyDisplay}
+                </div>
+              </div>
+              <div class="flex flex-col gap-1">
+                <button onclick="editEndpoint(${idx})" class="text-indigo-400 hover:text-indigo-300 text-xs" title="Edit">✎</button>
+                ${idx > 0 ? `<button onclick="moveEndpointUp(${idx})" class="text-slate-400 hover:text-white text-xs" title="Move up">↑</button>` : '<span class="text-xs invisible">↑</span>'}
+                ${idx < endpoints.length - 1 ? `<button onclick="moveEndpointDown(${idx})" class="text-slate-400 hover:text-white text-xs" title="Move down">↓</button>` : '<span class="text-xs invisible">↓</span>'}
+                ${!ep.isDefault ? `<button onclick="removeEndpoint(${idx})" class="text-red-400 hover:text-red-300 text-xs" title="Remove">✕</button>` : '<span class="text-xs invisible">✕</span>'}
+              </div>
             </div>
-          </div>
-        `;
+          `;
+        }
       }).join('');
 
       // Update display counters
@@ -419,6 +515,80 @@ CxtR...wxyz, 2"></textarea>
       document.getElementById('total-endpoints-display').textContent = enabledCount;
       document.getElementById('min-consensus-display').textContent = minConsensusThreshold;
     }
+
+    // Edit endpoint - enter edit mode
+    window.editEndpoint = function(idx) {
+      editingEndpointIndex = idx;
+      renderEndpointsList();
+    };
+
+    // Cancel edit mode
+    window.cancelEditEndpoint = function() {
+      editingEndpointIndex = null;
+      renderEndpointsList();
+    };
+
+    // Save endpoint changes
+    window.saveEndpoint = function(idx) {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster];
+      if (!endpoints || !endpoints[idx]) return;
+
+      let label = document.getElementById(`edit-label-${idx}`)?.value.trim() || '';
+      let url = document.getElementById(`edit-url-${idx}`)?.value.trim() || '';
+      let apiKey = document.getElementById(`edit-apikey-${idx}`)?.value.trim() || '';
+
+      if (!label || !url) {
+        alert('Label and URL are required.');
+        return;
+      }
+
+      // Extract API key from URL if present
+      try {
+        if (url.includes('api-key=') || url.includes('apikey=')) {
+          const urlObj = new URL(url);
+          const keyFromUrl = urlObj.searchParams.get('api-key') || urlObj.searchParams.get('apikey');
+          if (keyFromUrl && !apiKey) {
+            apiKey = keyFromUrl;
+          }
+          // Remove API key from URL
+          urlObj.searchParams.delete('api-key');
+          urlObj.searchParams.delete('apikey');
+          url = urlObj.toString();
+        }
+      } catch (e) {
+        console.error('Error parsing URL:', e);
+      }
+
+      endpoints[idx].label = label;
+      endpoints[idx].url = url;
+      endpoints[idx].apiKey = apiKey;
+
+      editingEndpointIndex = null;
+      saveRpcEndpoints();
+      renderEndpointsList();
+      
+      // Re-initialize connection if this is the primary endpoint
+      const primaryId = primaryEndpointByCluster[cluster];
+      if (endpoints[idx].id === primaryId) {
+        initializeConnection();
+      }
+      
+      log(`Endpoint updated: ${label}`, 'success');
+    };
+
+    // Set primary endpoint
+    window.setPrimaryEndpoint = function(idx) {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster];
+      if (!endpoints || !endpoints[idx]) return;
+
+      primaryEndpointByCluster[cluster] = endpoints[idx].id;
+      saveRpcEndpoints();
+      renderEndpointsList();
+      initializeConnection();
+      log(`Primary endpoint set to: ${endpoints[idx].label}`, 'success');
+    };
 
     // Toggle endpoint enabled state
     window.toggleEndpointEnabled = function(idx) {
@@ -428,6 +598,12 @@ CxtR...wxyz, 2"></textarea>
         endpoints[idx].enabled = !endpoints[idx].enabled;
         saveRpcEndpoints();
         renderEndpointsList();
+        
+        // Re-initialize connection if this affects the primary endpoint
+        const primaryId = primaryEndpointByCluster[cluster];
+        if (endpoints[idx].id === primaryId) {
+          initializeConnection();
+        }
       }
     };
 
@@ -439,6 +615,12 @@ CxtR...wxyz, 2"></textarea>
         [endpoints[idx - 1], endpoints[idx]] = [endpoints[idx], endpoints[idx - 1]];
         saveRpcEndpoints();
         renderEndpointsList();
+        
+        // Re-initialize connection if primary is affected
+        const primaryId = primaryEndpointByCluster[cluster];
+        if (endpoints[idx].id === primaryId || endpoints[idx - 1].id === primaryId) {
+          initializeConnection();
+        }
       }
     };
 
@@ -450,6 +632,12 @@ CxtR...wxyz, 2"></textarea>
         [endpoints[idx], endpoints[idx + 1]] = [endpoints[idx + 1], endpoints[idx]];
         saveRpcEndpoints();
         renderEndpointsList();
+        
+        // Re-initialize connection if primary is affected
+        const primaryId = primaryEndpointByCluster[cluster];
+        if (endpoints[idx].id === primaryId || endpoints[idx + 1].id === primaryId) {
+          initializeConnection();
+        }
       }
     };
 
@@ -459,9 +647,17 @@ CxtR...wxyz, 2"></textarea>
       const endpoints = userRpcEndpoints[cluster];
       if (endpoints && endpoints[idx] && !endpoints[idx].isDefault) {
         if (confirm(`Remove endpoint "${endpoints[idx].label}"?`)) {
+          const removedId = endpoints[idx].id;
           endpoints.splice(idx, 1);
+          
+          // Clear primary if we removed it
+          if (primaryEndpointByCluster[cluster] === removedId) {
+            primaryEndpointByCluster[cluster] = null;
+          }
+          
           saveRpcEndpoints();
           renderEndpointsList();
+          initializeConnection();
         }
       }
     };
@@ -596,12 +792,26 @@ CxtR...wxyz, 2"></textarea>
       }
     });
 
-    // Cluster change should update endpoint list
+    // Cluster change should update endpoint list and connection
     clusterSelect.addEventListener('change', () => {
       currentCluster = getCurrentCluster();
       const section = document.getElementById('rpc-verification-section');
       if (section.style.display !== 'none') {
         renderEndpointsList();
+      }
+      initializeConnection();
+    });
+
+    // Reset endpoints to defaults for current cluster
+    document.getElementById('reset-endpoints-btn')?.addEventListener('click', () => {
+      const cluster = getCurrentCluster();
+      if (confirm(`Reset all endpoints for ${cluster} to defaults? This will remove all custom endpoints for this cluster.`)) {
+        userRpcEndpoints[cluster] = JSON.parse(JSON.stringify(DEFAULT_RPC_ENDPOINTS[cluster]));
+        primaryEndpointByCluster[cluster] = null;
+        saveRpcEndpoints();
+        renderEndpointsList();
+        initializeConnection();
+        log(`Endpoints reset to defaults for ${cluster}`, 'success');
       }
     });
 
@@ -618,15 +828,13 @@ CxtR...wxyz, 2"></textarea>
       );
     });
 
-    /* -------------------- Persistent Custom RPC -------------------- */
+    /* -------------------- Initialization -------------------- */
     document.addEventListener('DOMContentLoaded', () => {
-      const savedRpc = localStorage.getItem('customRpcUrl');
-      if (savedRpc && !rpcUrlInput.value) {
-        rpcUrlInput.value = savedRpc;
-      }
-      
       // Load RPC endpoints configuration
       loadRpcEndpoints();
+      
+      // Initialize connection with primary endpoint
+      initializeConnection();
       
       // Set initial consensus threshold in UI
       const thresholdInput = document.getElementById('min-consensus-threshold');
@@ -636,9 +844,6 @@ CxtR...wxyz, 2"></textarea>
       
       setUi(false);
       resetProgress();
-    });
-    rpcUrlInput.addEventListener('change', () => {
-      localStorage.setItem('customRpcUrl', rpcUrlInput.value.trim());
     });
 
     /* -------------------- Amount Helpers (BigInt) -------------------- */
@@ -724,6 +929,9 @@ CxtR...wxyz, 2"></textarea>
         connectBtn.textContent = `Connected: ${wallet.toString().slice(0,4)}...${wallet.toString().slice(-4)}`;
         connectBtn.classList.replace('bg-indigo-600','bg-slate-700');
         setUi(true);
+        
+        // Re-initialize connection after wallet connects
+        initializeConnection();
 
         if (provider.on) {
           provider.on('disconnect', () => {
@@ -764,7 +972,7 @@ CxtR...wxyz, 2"></textarea>
       const signed = await provider.signTransaction(tx);
       const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight:false });
       log(`Sender ATA creation tx: ${sig}`, 'success');
-      await connection.confirmTransaction({ signature:sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      await connection.confirmTransaction({ signature:sig, blockhash, lastValidBlockHeight }, 'finalized');
       log('Sender ATA confirmed.', 'success');
     }
 
@@ -799,7 +1007,7 @@ CxtR...wxyz, 2"></textarea>
       return { tx, ataCreations, lastValidBlockHeight };
     }
 
-    async function confirmSig(signature, blockhash, lastValidBlockHeight, commitment='confirmed') {
+    async function confirmSig(signature, blockhash, lastValidBlockHeight, commitment='finalized') {
       const res = await connection.confirmTransaction(
         { signature, blockhash, lastValidBlockHeight },
         commitment
@@ -986,7 +1194,7 @@ CxtR...wxyz, 2"></textarea>
         const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight:false });
         log(`${attemptLabel}TX sent: ${sig}`, 'success');
 
-        const ok = await confirmSig(sig, tx.recentBlockhash, tx.lastValidBlockHeight ?? lastValidBlockHeight, 'confirmed');
+        const ok = await confirmSig(sig, tx.recentBlockhash, tx.lastValidBlockHeight ?? lastValidBlockHeight, 'finalized');
         if (!ok) {
           log(`${attemptLabel}Confirmation reported failure.`, 'error');
           return false;
@@ -1061,10 +1269,6 @@ CxtR...wxyz, 2"></textarea>
       resetProgress();
       log('Starting multisend with retries...', 'info');
 
-      const dropdownUrl = clusterSelect.value;
-      const customRpc   = rpcUrlInput.value.trim();
-      const rpcUrl      = customRpc || dropdownUrl;
-
       const mintStr = mintInput.value.trim();
 
       // Safety normalization before parsing recipients (even if user never blurred or clicked Trim)
@@ -1080,8 +1284,12 @@ CxtR...wxyz, 2"></textarea>
       }
 
       try {
-        log(`RPC: ${rpcUrl}`, 'info');
-        connection = new Connection(rpcUrl, 'confirmed');
+        // Ensure connection is initialized with the primary endpoint
+        if (!connection) {
+          initializeConnection();
+        }
+        
+        log(`Using RPC: ${connection._rpcEndpoint}`, 'info');
         
         // Validate endpoint configuration
         const enabledEndpoints = getEnabledEndpoints();
