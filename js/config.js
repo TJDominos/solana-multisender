@@ -1,63 +1,65 @@
 /**
- * config.js - Configuration loading and merging
- * Loads config.json from repo root and provides merged configuration
+ * config.js - Configuration loading
+ * Loads config.json from repo root and provides configuration
+ * 
+ * RPC endpoints are now fully driven by config.json at the root.
+ * The fallback DEFAULT_RPC_ENDPOINTS only provides empty arrays to avoid runtime crashes.
  */
 
-// Built-in default RPC endpoints (fallback if config.json not found)
+// Minimal fallback to avoid runtime crashes if config.json is missing or invalid
+// This does not contain real endpoints - all real endpoints should be in config.json
 export const DEFAULT_RPC_ENDPOINTS = {
-  mainnet: [
-    { id: 'mainnet-solana-official', label: 'Solana Official (Mainnet)', url: 'https://api.mainnet-beta.solana.com', apiKey: '', enabled: true, isDefault: true },
-    { id: 'mainnet-helius-public', label: 'Helius (Mainnet - Public)', url: 'https://mainnet.helius-rpc.com', apiKey: 'fda76be1-7d09-4880-80db-837831934193', enabled: true, isDefault: true },
-    { id: 'mainnet-quicknode', label: 'QuickNode (Mainnet - Demo)', url: 'https://api.mainnet-beta.solana.com', apiKey: '', enabled: true, isDefault: true },
-  ],
-  devnet: [
-    { id: 'devnet-solana-official', label: 'Solana Official (Devnet)', url: 'https://api.devnet.solana.com', apiKey: '', enabled: true, isDefault: true },
-    { id: 'devnet-helius', label: 'Helius (Devnet)', url: 'https://devnet.helius-rpc.com', apiKey: 'fda76be1-7d09-4880-80db-837831934193', enabled: true, isDefault: true },
-    { id: 'devnet-quicknode', label: 'QuickNode (Devnet - Demo)', url: 'https://api.devnet.solana.com', apiKey: '', enabled: true, isDefault: true },
-  ],
-  testnet: [
-    { id: 'testnet-solana-official', label: 'Solana Official (Testnet)', url: 'https://api.testnet.solana.com', apiKey: '', enabled: true, isDefault: true },
-    { id: 'testnet-helius', label: 'Helius (Testnet)', url: 'https://testnet.helius-rpc.com', apiKey: '', enabled: false, isDefault: true },
-    { id: 'testnet-quicknode', label: 'QuickNode (Testnet - Demo)', url: 'https://api.testnet.solana.com', apiKey: '', enabled: false, isDefault: true },
-  ]
+  mainnet: [],
+  devnet: [],
+  testnet: []
 };
 
 /**
- * Load config.json and merge with defaults
+ * Load config.json from the repository root
  * @returns {Promise<Object>} Configuration object with RPC endpoints
+ * 
+ * Returns config.json as the single source of truth for RPC endpoints.
+ * If config.json is missing or invalid, returns minimal fallback with empty arrays.
  */
 export async function loadConfig() {
   try {
     const response = await fetch('./config.json');
     
     if (!response.ok) {
-      console.warn('config.json not found or not accessible, using built-in defaults');
+      console.warn('⚠️ config.json not found or not accessible (HTTP', response.status, ')');
+      console.warn('⚠️ Using minimal fallback with empty endpoint arrays');
+      console.warn('⚠️ Please ensure config.json exists in the repository root with proper RPC configuration');
       return { rpc: DEFAULT_RPC_ENDPOINTS };
     }
     
     const config = await response.json();
     
-    // Validate and merge with defaults
+    // Validate that config has rpc property
     if (!config.rpc) {
-      console.warn('config.json missing "rpc" property, using built-in defaults');
+      console.warn('⚠️ config.json missing "rpc" property');
+      console.warn('⚠️ Using minimal fallback with empty endpoint arrays');
+      console.warn('⚠️ Expected format: { "rpc": { "mainnet": [...], "devnet": [...], "testnet": [...] } }');
       return { rpc: DEFAULT_RPC_ENDPOINTS };
     }
     
-    // Deep clone to avoid mutations
-    const mergedConfig = {
-      rpc: {
-        mainnet: config.rpc.mainnet || DEFAULT_RPC_ENDPOINTS.mainnet,
-        devnet: config.rpc.devnet || DEFAULT_RPC_ENDPOINTS.devnet,
-        testnet: config.rpc.testnet || DEFAULT_RPC_ENDPOINTS.testnet
-      }
+    // Validate that each network property is an array (if present)
+    const validatedRpc = {
+      mainnet: Array.isArray(config.rpc.mainnet) ? config.rpc.mainnet : [],
+      devnet: Array.isArray(config.rpc.devnet) ? config.rpc.devnet : [],
+      testnet: Array.isArray(config.rpc.testnet) ? config.rpc.testnet : []
     };
     
     console.log('✓ config.json loaded successfully');
-    return mergedConfig;
+    console.log('  - Mainnet endpoints:', validatedRpc.mainnet.length);
+    console.log('  - Devnet endpoints:', validatedRpc.devnet.length);
+    console.log('  - Testnet endpoints:', validatedRpc.testnet.length);
+    
+    return { rpc: validatedRpc };
     
   } catch (error) {
-    console.warn('Failed to load config.json:', error.message);
-    console.warn('Using built-in default RPC endpoints');
+    console.warn('⚠️ Failed to load config.json:', error.message);
+    console.warn('⚠️ Using minimal fallback with empty endpoint arrays');
+    console.warn('⚠️ Please ensure config.json exists and contains valid JSON');
     return { rpc: DEFAULT_RPC_ENDPOINTS };
   }
 }
