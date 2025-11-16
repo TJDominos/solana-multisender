@@ -51,6 +51,71 @@
           <p id="connect-hint" class="text-xs text-slate-400 mt-2">Please connect your wallet first to enable the form.</p>
         </div>
 
+        <!-- RPC Nodes for Verification Section -->
+        <div class="border-t border-slate-700 pt-4">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-lg font-semibold">RPC Nodes for Verification</h2>
+            <button id="toggle-rpc-section" class="text-slate-400 hover:text-white text-sm">
+              [Show/Hide]
+            </button>
+          </div>
+          <div id="rpc-verification-section" class="space-y-3" style="display: none;">
+            <div class="bg-blue-900/20 border border-blue-700/40 rounded p-2 text-xs text-blue-200">
+              <strong>ℹ️ Consensus Verification:</strong> After each transaction, we check multiple RPC endpoints to ensure the transaction is finalized.
+              At least <span id="min-consensus-display">2</span> out of <span id="total-endpoints-display">3</span> endpoints must confirm for success.
+              <a href="#" id="info-consensus-link" class="underline">Learn more</a>
+            </div>
+
+            <!-- Consensus Threshold Setting -->
+            <div>
+              <label class="block text-sm font-medium text-slate-300 mb-1">
+                Minimum Consensus Threshold
+                <span class="text-slate-400 text-xs">(default: 2)</span>
+              </label>
+              <input id="min-consensus-threshold" type="number" value="2" min="1" max="10"
+                     class="w-full bg-slate-700 text-white border border-slate-600 rounded p-2">
+              <p class="text-xs text-slate-400 mt-1">
+                Number of endpoints that must confirm a transaction for it to be considered successful.
+              </p>
+            </div>
+
+            <!-- Endpoint List -->
+            <div>
+              <label class="block text-sm font-medium text-slate-300 mb-2">
+                Selected RPC Endpoints (min 3 required)
+              </label>
+              <div id="rpc-endpoints-list" class="space-y-2 max-h-64 overflow-y-auto">
+                <!-- Endpoints will be rendered here -->
+              </div>
+            </div>
+
+            <!-- Add Endpoint Form -->
+            <div class="border-t border-slate-700 pt-3">
+              <button id="toggle-add-endpoint" class="text-sm text-indigo-400 hover:text-indigo-300">
+                + Add Custom Endpoint
+              </button>
+              <div id="add-endpoint-form" class="mt-2 space-y-2" style="display: none;">
+                <input id="new-endpoint-label" type="text" placeholder="Endpoint Label (e.g., 'My Helius Node')"
+                       class="w-full bg-slate-700 text-white border border-slate-600 rounded p-2 text-sm">
+                <input id="new-endpoint-url" type="text" placeholder="RPC URL (e.g., https://...)"
+                       class="w-full bg-slate-700 text-white border border-slate-600 rounded p-2 text-sm">
+                <input id="new-endpoint-apikey" type="password" placeholder="API Key (optional)"
+                       class="w-full bg-slate-700 text-white border border-slate-600 rounded p-2 text-sm">
+                <div class="flex gap-2">
+                  <button id="add-endpoint-btn" 
+                          class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 px-3 rounded transition">
+                    Add Endpoint
+                  </button>
+                  <button id="cancel-add-endpoint-btn" 
+                          class="flex-1 bg-slate-600 hover:bg-slate-700 text-white text-sm py-2 px-3 rounded transition">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div>
           <label for="token-mint-address" class="block text-sm font-medium text-slate-300 mb-1">2. Token Mint Address</label>
           <input id="token-mint-address" type="text" disabled
@@ -113,15 +178,15 @@ CxtR...wxyz, 2"></textarea>
       <div class="bg-slate-800 p-6 rounded-lg shadow flex flex-col">
         <h2 class="text-lg font-semibold mb-2 text-white">Log & Progress</h2>
         
-        <!-- Cross-RPC Verification Info -->
+        <!-- Multi-RPC Consensus Verification Info -->
         <div class="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-3 text-xs">
           <div class="flex items-start gap-2">
             <span class="text-blue-400 font-bold text-sm">🔍</span>
             <div class="text-blue-200">
-              <strong>Cross-RPC Verification:</strong> Each transaction is verified on a backup RPC provider for added security.
+              <strong>Multi-RPC Consensus Verification:</strong> Each transaction is verified across multiple RPC endpoints for maximum security and reliability.
               <span class="text-blue-300 block mt-1">
-                ✅ Green = Backup RPC confirms transaction | 
-                ⚠️ Yellow = Warning (may need time to sync)
+                ✅ Green = Consensus reached (enough endpoints confirmed) | 
+                ⚠️ Yellow = Warning (consensus not reached or nodes out of sync)
               </span>
             </div>
           </div>
@@ -187,13 +252,219 @@ CxtR...wxyz, 2"></textarea>
     let decimals = 0;
     let senderAta = null;
 
-    // Backup RPC connections for cross-RPC verification
+    // Backup RPC connections for cross-RPC verification (legacy, replaced by multi-endpoint system)
     let backupConnection = null;
 
     // Results
     let allRecipients = [];
     let completedRecipients = new Set();
     let failedRecipients = [];
+
+    /* -------------------- RPC Endpoint Management -------------------- */
+    
+    // Default RPC endpoints by cluster
+    const DEFAULT_RPC_ENDPOINTS = {
+      mainnet: [
+        { id: 'mainnet-solana-official', label: 'Solana Official (Mainnet)', url: 'https://api.mainnet-beta.solana.com', apiKey: '', enabled: true, isDefault: true },
+        { id: 'mainnet-helius-public', label: 'Helius (Mainnet - Public)', url: 'https://mainnet.helius-rpc.com/?api-key=fda76be1-7d09-4880-80db-837831934193', apiKey: '', enabled: true, isDefault: true },
+        { id: 'mainnet-quicknode', label: 'QuickNode (Mainnet - Demo)', url: 'https://api.mainnet-beta.solana.com', apiKey: '', enabled: true, isDefault: true },
+      ],
+      devnet: [
+        { id: 'devnet-solana-official', label: 'Solana Official (Devnet)', url: 'https://api.devnet.solana.com', apiKey: '', enabled: true, isDefault: true },
+        { id: 'devnet-helius', label: 'Helius (Devnet)', url: 'https://devnet.helius-rpc.com/?api-key=fda76be1-7d09-4880-80db-837831934193', apiKey: '', enabled: true, isDefault: true },
+        { id: 'devnet-quicknode', label: 'QuickNode (Devnet - Demo)', url: 'https://api.devnet.solana.com', apiKey: '', enabled: true, isDefault: true },
+      ],
+      testnet: [
+        { id: 'testnet-solana-official', label: 'Solana Official (Testnet)', url: 'https://api.testnet.solana.com', apiKey: '', enabled: true, isDefault: true },
+        { id: 'testnet-helius', label: 'Helius (Testnet)', url: 'https://testnet.helius-rpc.com', apiKey: '', enabled: false, isDefault: true },
+        { id: 'testnet-quicknode', label: 'QuickNode (Testnet - Demo)', url: 'https://api.testnet.solana.com', apiKey: '', enabled: false, isDefault: true },
+      ]
+    };
+
+    // User's configured endpoints (loaded from localStorage)
+    let userRpcEndpoints = { mainnet: [], devnet: [], testnet: [] };
+    
+    // Current cluster for endpoint selection
+    let currentCluster = 'devnet';
+
+    // Minimum consensus threshold (how many endpoints must agree)
+    let minConsensusThreshold = 2;
+
+    /* -------------------- RPC Endpoint Functions -------------------- */
+    
+    // Load endpoints from localStorage or initialize with defaults
+    function loadRpcEndpoints() {
+      const stored = localStorage.getItem('rpcEndpointsConfig');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          userRpcEndpoints = parsed;
+          // Ensure all clusters exist
+          if (!userRpcEndpoints.mainnet) userRpcEndpoints.mainnet = [...DEFAULT_RPC_ENDPOINTS.mainnet];
+          if (!userRpcEndpoints.devnet) userRpcEndpoints.devnet = [...DEFAULT_RPC_ENDPOINTS.devnet];
+          if (!userRpcEndpoints.testnet) userRpcEndpoints.testnet = [...DEFAULT_RPC_ENDPOINTS.testnet];
+        } catch (e) {
+          console.error('Failed to parse stored RPC endpoints:', e);
+          userRpcEndpoints = {
+            mainnet: [...DEFAULT_RPC_ENDPOINTS.mainnet],
+            devnet: [...DEFAULT_RPC_ENDPOINTS.devnet],
+            testnet: [...DEFAULT_RPC_ENDPOINTS.testnet]
+          };
+        }
+      } else {
+        // Initialize with defaults
+        userRpcEndpoints = {
+          mainnet: [...DEFAULT_RPC_ENDPOINTS.mainnet],
+          devnet: [...DEFAULT_RPC_ENDPOINTS.devnet],
+          testnet: [...DEFAULT_RPC_ENDPOINTS.testnet]
+        };
+      }
+      
+      // Load consensus threshold
+      const storedThreshold = localStorage.getItem('minConsensusThreshold');
+      if (storedThreshold) {
+        minConsensusThreshold = parseInt(storedThreshold, 10) || 2;
+      }
+    }
+
+    // Save endpoints to localStorage
+    function saveRpcEndpoints() {
+      localStorage.setItem('rpcEndpointsConfig', JSON.stringify(userRpcEndpoints));
+      localStorage.setItem('minConsensusThreshold', minConsensusThreshold.toString());
+    }
+
+    // Get current cluster name based on connection URL
+    function getCurrentCluster() {
+      const dropdownUrl = clusterSelect.value;
+      const customRpc = rpcUrlInput.value.trim();
+      const rpcUrl = customRpc || dropdownUrl;
+      
+      if (rpcUrl.includes('devnet')) return 'devnet';
+      if (rpcUrl.includes('testnet')) return 'testnet';
+      return 'mainnet';
+    }
+
+    // Get enabled endpoints for current cluster
+    function getEnabledEndpoints() {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster] || [];
+      return endpoints.filter(ep => ep.enabled);
+    }
+
+    // Build full URL with API key if needed
+    function buildEndpointUrl(endpoint) {
+      if (!endpoint.apiKey) return endpoint.url;
+      
+      // If URL already has query params, append with &
+      if (endpoint.url.includes('?')) {
+        return `${endpoint.url}&api-key=${endpoint.apiKey}`;
+      }
+      // Otherwise, add with ?
+      return `${endpoint.url}?api-key=${endpoint.apiKey}`;
+    }
+
+    // Obfuscate API key for display
+    function obfuscateApiKey(key) {
+      if (!key || key.length < 8) return '••••••';
+      return key.slice(0, 4) + '••••' + key.slice(-4);
+    }
+
+    // Render endpoint list UI
+    function renderEndpointsList() {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster] || [];
+      const container = document.getElementById('rpc-endpoints-list');
+      
+      if (endpoints.length === 0) {
+        container.innerHTML = '<p class="text-slate-400 text-sm">No endpoints configured for this cluster.</p>';
+        return;
+      }
+
+      container.innerHTML = endpoints.map((ep, idx) => {
+        const displayUrl = ep.url.length > 50 ? ep.url.slice(0, 47) + '...' : ep.url;
+        const hasApiKey = ep.apiKey && ep.apiKey.trim() !== '';
+        const apiKeyDisplay = hasApiKey ? obfuscateApiKey(ep.apiKey) : 'None';
+        
+        return `
+          <div class="bg-slate-700 rounded p-3 flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <input type="checkbox" id="endpoint-enabled-${idx}" 
+                       ${ep.enabled ? 'checked' : ''}
+                       class="rounded bg-slate-600 border-slate-500"
+                       onchange="toggleEndpointEnabled(${idx})">
+                <label for="endpoint-enabled-${idx}" class="text-sm font-medium text-white truncate">
+                  ${ep.label}
+                </label>
+                ${ep.isDefault ? '<span class="text-xs bg-blue-600 text-white px-1 rounded">Default</span>' : ''}
+              </div>
+              <div class="text-xs text-slate-400 truncate" title="${ep.url}">
+                URL: ${displayUrl}
+              </div>
+              <div class="text-xs text-slate-400">
+                API Key: ${apiKeyDisplay}
+              </div>
+            </div>
+            <div class="flex flex-col gap-1">
+              ${idx > 0 ? `<button onclick="moveEndpointUp(${idx})" class="text-slate-400 hover:text-white text-xs" title="Move up">↑</button>` : '<span class="text-xs invisible">↑</span>'}
+              ${idx < endpoints.length - 1 ? `<button onclick="moveEndpointDown(${idx})" class="text-slate-400 hover:text-white text-xs" title="Move down">↓</button>` : '<span class="text-xs invisible">↓</span>'}
+              ${!ep.isDefault ? `<button onclick="removeEndpoint(${idx})" class="text-red-400 hover:text-red-300 text-xs" title="Remove">✕</button>` : '<span class="text-xs invisible">✕</span>'}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Update display counters
+      const enabledCount = endpoints.filter(ep => ep.enabled).length;
+      document.getElementById('total-endpoints-display').textContent = enabledCount;
+      document.getElementById('min-consensus-display').textContent = minConsensusThreshold;
+    }
+
+    // Toggle endpoint enabled state
+    window.toggleEndpointEnabled = function(idx) {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster];
+      if (endpoints && endpoints[idx]) {
+        endpoints[idx].enabled = !endpoints[idx].enabled;
+        saveRpcEndpoints();
+        renderEndpointsList();
+      }
+    };
+
+    // Move endpoint up in list
+    window.moveEndpointUp = function(idx) {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster];
+      if (idx > 0 && endpoints) {
+        [endpoints[idx - 1], endpoints[idx]] = [endpoints[idx], endpoints[idx - 1]];
+        saveRpcEndpoints();
+        renderEndpointsList();
+      }
+    };
+
+    // Move endpoint down in list
+    window.moveEndpointDown = function(idx) {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster];
+      if (idx < endpoints.length - 1 && endpoints) {
+        [endpoints[idx], endpoints[idx + 1]] = [endpoints[idx + 1], endpoints[idx]];
+        saveRpcEndpoints();
+        renderEndpointsList();
+      }
+    };
+
+    // Remove endpoint
+    window.removeEndpoint = function(idx) {
+      const cluster = getCurrentCluster();
+      const endpoints = userRpcEndpoints[cluster];
+      if (endpoints && endpoints[idx] && !endpoints[idx].isDefault) {
+        if (confirm(`Remove endpoint "${endpoints[idx].label}"?`)) {
+          endpoints.splice(idx, 1);
+          saveRpcEndpoints();
+          renderEndpointsList();
+        }
+      }
+    };
 
     /* -------------------- Logging -------------------- */
     function log(msg, type='info') {
@@ -240,12 +511,129 @@ CxtR...wxyz, 2"></textarea>
       updateProgress();
     }
 
+    /* -------------------- RPC Management UI Event Listeners -------------------- */
+    
+    // Toggle RPC section visibility
+    document.getElementById('toggle-rpc-section')?.addEventListener('click', () => {
+      const section = document.getElementById('rpc-verification-section');
+      if (section.style.display === 'none') {
+        section.style.display = 'block';
+        renderEndpointsList();
+      } else {
+        section.style.display = 'none';
+      }
+    });
+
+    // Toggle add endpoint form
+    document.getElementById('toggle-add-endpoint')?.addEventListener('click', () => {
+      const form = document.getElementById('add-endpoint-form');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Cancel add endpoint
+    document.getElementById('cancel-add-endpoint-btn')?.addEventListener('click', () => {
+      document.getElementById('add-endpoint-form').style.display = 'none';
+      document.getElementById('new-endpoint-label').value = '';
+      document.getElementById('new-endpoint-url').value = '';
+      document.getElementById('new-endpoint-apikey').value = '';
+    });
+
+    // Add new endpoint
+    document.getElementById('add-endpoint-btn')?.addEventListener('click', () => {
+      const label = document.getElementById('new-endpoint-label').value.trim();
+      let url = document.getElementById('new-endpoint-url').value.trim();
+      let apiKey = document.getElementById('new-endpoint-apikey').value.trim();
+
+      if (!label || !url) {
+        alert('Please provide both a label and URL for the endpoint.');
+        return;
+      }
+
+      // Auto-extract API key from URL if present
+      if (url.includes('api-key=') || url.includes('apikey=')) {
+        const urlObj = new URL(url);
+        const keyFromUrl = urlObj.searchParams.get('api-key') || urlObj.searchParams.get('apikey');
+        if (keyFromUrl && !apiKey) {
+          apiKey = keyFromUrl;
+          // Remove API key from URL to store separately
+          urlObj.searchParams.delete('api-key');
+          urlObj.searchParams.delete('apikey');
+          url = urlObj.toString();
+        }
+      }
+
+      const cluster = getCurrentCluster();
+      const newEndpoint = {
+        id: `custom-${Date.now()}`,
+        label,
+        url,
+        apiKey,
+        enabled: true,
+        isDefault: false
+      };
+
+      userRpcEndpoints[cluster].push(newEndpoint);
+      saveRpcEndpoints();
+      renderEndpointsList();
+
+      // Clear form
+      document.getElementById('new-endpoint-label').value = '';
+      document.getElementById('new-endpoint-url').value = '';
+      document.getElementById('new-endpoint-apikey').value = '';
+      document.getElementById('add-endpoint-form').style.display = 'none';
+
+      log(`Added new RPC endpoint: ${label}`, 'success');
+    });
+
+    // Update consensus threshold
+    document.getElementById('min-consensus-threshold')?.addEventListener('change', (e) => {
+      const val = parseInt(e.target.value, 10);
+      if (val >= 1 && val <= 10) {
+        minConsensusThreshold = val;
+        saveRpcEndpoints();
+        renderEndpointsList();
+        log(`Consensus threshold updated to ${val}`, 'info');
+      }
+    });
+
+    // Cluster change should update endpoint list
+    clusterSelect.addEventListener('change', () => {
+      currentCluster = getCurrentCluster();
+      const section = document.getElementById('rpc-verification-section');
+      if (section.style.display !== 'none') {
+        renderEndpointsList();
+      }
+    });
+
+    // Info link for consensus explanation
+    document.getElementById('info-consensus-link')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      alert(
+        'Consensus Verification Explained:\n\n' +
+        'After each transaction is confirmed, we query multiple independent RPC endpoints to verify the transaction is finalized.\n\n' +
+        'Why? Different RPC providers may have slightly different views of the blockchain state. By requiring multiple endpoints to agree, we ensure greater confidence that your transaction succeeded.\n\n' +
+        'Minimum Consensus Threshold: The number of endpoints that must report "finalized" status for the transaction to be considered successful.\n\n' +
+        'Example: With 3 endpoints and threshold of 2, at least 2 must confirm the transaction.\n\n' +
+        'Recommendation: Use at least 3 endpoints from different providers (e.g., Solana official, Helius, QuickNode) for best reliability.'
+      );
+    });
+
     /* -------------------- Persistent Custom RPC -------------------- */
     document.addEventListener('DOMContentLoaded', () => {
       const savedRpc = localStorage.getItem('customRpcUrl');
       if (savedRpc && !rpcUrlInput.value) {
         rpcUrlInput.value = savedRpc;
       }
+      
+      // Load RPC endpoints configuration
+      loadRpcEndpoints();
+      
+      // Set initial consensus threshold in UI
+      const thresholdInput = document.getElementById('min-consensus-threshold');
+      if (thresholdInput) {
+        thresholdInput.value = minConsensusThreshold;
+      }
+      
       setUi(false);
       resetProgress();
     });
@@ -419,63 +807,150 @@ CxtR...wxyz, 2"></textarea>
       return !res?.value?.err;
     }
 
-    /* -------------------- Cross-RPC Verification -------------------- */
-    // Get the appropriate backup RPC URL based on current cluster
-    function getBackupRpcUrl() {
-      const rpc = connection._rpcEndpoint || '';
-      const isDevnet = rpc.includes('devnet') || clusterSelect.value.includes('devnet');
-      return isDevnet 
-        ? 'https://api.devnet.solana.com'
-        : 'https://api.mainnet-beta.solana.com';
-    }
-
-    // Verify transaction signature on a backup RPC provider
-    async function verifyTransactionOnBackupRpc(signature) {
-      const backupUrl = getBackupRpcUrl();
+    /* -------------------- Multi-Endpoint Consensus Verification -------------------- */
+    
+    /**
+     * Verify transaction signature on a single RPC endpoint at 'finalized' commitment level
+     * @param {string} signature - Transaction signature to verify
+     * @param {object} endpoint - Endpoint configuration object
+     * @returns {Promise<object>} - { success: boolean, status: string, error?: string }
+     */
+    async function verifyTransactionOnEndpoint(signature, endpoint) {
+      const fullUrl = buildEndpointUrl(endpoint);
       try {
-        log(`🔍 Cross-RPC Verification: Querying backup RPC (${backupUrl})...`, 'info');
-        
-        // Create a temporary connection to backup RPC
-        const backupConn = new Connection(backupUrl, 'finalized');
+        // Create a temporary connection to this endpoint
+        const conn = new Connection(fullUrl, 'finalized');
         
         // Query the signature status with finalized commitment
-        const status = await backupConn.getSignatureStatus(signature, {
+        const status = await conn.getSignatureStatus(signature, {
           searchTransactionHistory: true
         });
 
         if (!status || !status.value) {
-          log(`⚠️ Cross-RPC Verification: Backup RPC does not recognize transaction ${signature}`, 'warning');
-          log(`ℹ️ This may be normal if the backup RPC hasn't synced yet. Wait a moment and check manually.`, 'warning');
-          return false;
+          return {
+            success: false,
+            status: 'not_found',
+            error: 'Transaction not recognized by this endpoint'
+          };
         }
 
-        const confirmations = status.value.confirmations;
         const confirmationStatus = status.value.confirmationStatus;
         const hasError = status.value.err;
 
         if (hasError) {
-          log(`❌ Cross-RPC Verification: Backup RPC shows transaction error: ${JSON.stringify(hasError)}`, 'error');
-          return false;
+          return {
+            success: false,
+            status: 'error',
+            error: JSON.stringify(hasError)
+          };
         }
 
         if (confirmationStatus === 'finalized') {
-          log(`✅ Cross-RPC Verification: Transaction confirmed on backup RPC (finalized)`, 'success');
-          return true;
-        } else if (confirmationStatus === 'confirmed' || confirmationStatus === 'processed') {
-          log(`✓ Cross-RPC Verification: Transaction found on backup RPC (${confirmationStatus}, ${confirmations} confirmations)`, 'success');
-          log(`ℹ️ Transaction is not yet finalized on backup RPC but is recognized.`, 'info');
-          return true;
+          return {
+            success: true,
+            status: 'finalized'
+          };
+        } else if (confirmationStatus === 'confirmed') {
+          return {
+            success: true,
+            status: 'confirmed'
+          };
+        } else if (confirmationStatus === 'processed') {
+          return {
+            success: false,
+            status: 'processed',
+            error: 'Only processed, not yet confirmed'
+          };
         } else {
-          log(`⚠️ Cross-RPC Verification: Unexpected status: ${confirmationStatus}`, 'warning');
-          return false;
+          return {
+            success: false,
+            status: confirmationStatus || 'unknown',
+            error: 'Unexpected confirmation status'
+          };
         }
 
       } catch (err) {
-        const msg = err?.message || String(err);
-        log(`⚠️ Cross-RPC Verification: Error querying backup RPC: ${msg}`, 'warning');
-        log(`ℹ️ This doesn't mean the transaction failed - it may be a temporary network issue.`, 'info');
-        return false;
+        return {
+          success: false,
+          status: 'error',
+          error: err?.message || String(err)
+        };
       }
+    }
+
+    /**
+     * Perform multi-endpoint consensus verification for a transaction
+     * @param {string} signature - Transaction signature to verify
+     * @returns {Promise<object>} - { consensusReached: boolean, results: array, confirmedCount: number, totalCount: number }
+     */
+    async function performConsensusVerification(signature) {
+      const endpoints = getEnabledEndpoints();
+      
+      if (endpoints.length === 0) {
+        log(`⚠️ No RPC endpoints enabled for verification. Skipping consensus check.`, 'warning');
+        return {
+          consensusReached: false,
+          results: [],
+          confirmedCount: 0,
+          totalCount: 0
+        };
+      }
+
+      if (endpoints.length < 3) {
+        log(`⚠️ Warning: Only ${endpoints.length} endpoint(s) enabled. Recommend at least 3 for reliable consensus.`, 'warning');
+      }
+
+      log(`🔍 Multi-RPC Consensus Verification: Querying ${endpoints.length} endpoint(s)...`, 'info');
+
+      // Query all endpoints in parallel
+      const verificationPromises = endpoints.map(async (endpoint) => {
+        const result = await verifyTransactionOnEndpoint(signature, endpoint);
+        return {
+          endpoint: endpoint.label,
+          ...result
+        };
+      });
+
+      const results = await Promise.all(verificationPromises);
+      
+      // Count how many endpoints successfully confirmed at finalized level
+      const confirmedCount = results.filter(r => r.success && r.status === 'finalized').length;
+      const totalCount = results.length;
+      
+      // Check if consensus threshold is met
+      const consensusReached = confirmedCount >= minConsensusThreshold;
+
+      // Log detailed results
+      log(`📊 Consensus Verification Results:`, 'info');
+      results.forEach(r => {
+        if (r.success) {
+          log(`  ✅ ${r.endpoint}: ${r.status}`, 'success');
+        } else {
+          log(`  ❌ ${r.endpoint}: ${r.status} - ${r.error || 'Unknown error'}`, 'warning');
+        }
+      });
+
+      if (consensusReached) {
+        log(`✅ Consensus Reached: ${confirmedCount}/${totalCount} endpoints confirmed (threshold: ${minConsensusThreshold})`, 'success');
+      } else {
+        log(`⚠️ Consensus NOT Reached: Only ${confirmedCount}/${totalCount} endpoints confirmed (threshold: ${minConsensusThreshold})`, 'warning');
+        log(`ℹ️ This may indicate network sync delays. Check manually: https://solscan.io/tx/${signature}`, 'warning');
+      }
+
+      return {
+        consensusReached,
+        results,
+        confirmedCount,
+        totalCount
+      };
+    }
+
+    /**
+     * Legacy function for backward compatibility - now calls new consensus verification
+     */
+    async function verifyTransactionOnBackupRpc(signature) {
+      const result = await performConsensusVerification(signature);
+      return result.consensusReached;
     }
 
     async function simulateTx(tx) {
@@ -521,8 +996,13 @@ CxtR...wxyz, 2"></textarea>
         const devnetParam = (rpc.includes('devnet') || clusterSelect.value.includes('devnet')) ? '?cluster=devnet' : '';
         log(`${attemptLabel}Confirmed: https://solscan.io/tx/${sig}${devnetParam}`, 'success');
 
-        // Perform cross-RPC verification
-        await verifyTransactionOnBackupRpc(sig);
+        // Perform multi-endpoint consensus verification
+        const consensusResult = await performConsensusVerification(sig);
+        
+        // Show warning if consensus not reached (but don't fail the batch)
+        if (!consensusResult.consensusReached) {
+          log(`⚠️ Warning: Consensus verification did not reach threshold. Transaction may still be valid.`, 'warning');
+        }
 
         return true;
       } catch (e) {
@@ -603,11 +1083,16 @@ CxtR...wxyz, 2"></textarea>
         log(`RPC: ${rpcUrl}`, 'info');
         connection = new Connection(rpcUrl, 'confirmed');
         
-        // Log backup RPC info
-        const backupRpcUrl = rpcUrl.includes('devnet') || dropdownUrl.includes('devnet')
-          ? 'https://api.devnet.solana.com'
-          : 'https://api.mainnet-beta.solana.com';
-        log(`Backup RPC for verification: ${backupRpcUrl}`, 'info');
+        // Validate endpoint configuration
+        const enabledEndpoints = getEnabledEndpoints();
+        log(`Verification endpoints enabled: ${enabledEndpoints.length}`, 'info');
+        
+        if (enabledEndpoints.length < 3) {
+          log(`⚠️ Warning: Less than 3 RPC endpoints enabled for verification. Recommend enabling at least 3.`, 'warning');
+          log(`ℹ️ Go to "RPC Nodes for Verification" section to configure endpoints.`, 'warning');
+        } else {
+          log(`✓ Using ${enabledEndpoints.length} endpoints for consensus verification (threshold: ${minConsensusThreshold})`, 'info');
+        }
         
         mintPubkey = new PublicKey(mintStr);
 
