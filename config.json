@@ -1,0 +1,82 @@
+{
+  "rpc": {
+    "mainnet": [
+      {
+        "id": "mainnet-solana-official",
+        "label": "Solana Official (Mainnet)",
+        "url": "https://api.mainnet-beta.solana.com",
+        "apiKey": "",
+        "enabled": true,
+        "isDefault": true
+      },
+      {
+        "id": "mainnet-helius-public",
+        "label": "Helius (Mainnet - Public)",
+        "url": "https://mainnet.helius-rpc.com",
+        "apiKey": "fda76be1-7d09-4880-80db-837831934193",
+        "enabled": true,
+        "isDefault": true
+      },
+      {
+        "id": "mainnet-quicknode",
+        "label": "QuickNode (Mainnet - Demo)",
+        "url": "https://api.mainnet-beta.solana.com",
+        "apiKey": "",
+        "enabled": true,
+        "isDefault": true
+      }
+    ],
+    "devnet": [
+      {
+        "id": "devnet-solana-official",
+        "label": "Solana Official (Devnet)",
+        "url": "https://api.devnet.solana.com",
+        "apiKey": "",
+        "enabled": true,
+        "isDefault": true
+      },
+      {
+        "id": "devnet-helius",
+        "label": "Helius (Devnet)",
+        "url": "https://devnet.helius-rpc.com",
+        "apiKey": "fda76be1-7d09-4880-80db-837831934193",
+        "enabled": true,
+        "isDefault": true
+      },
+      {
+        "id": "devnet-quicknode",
+        "label": "QuickNode (Devnet - Demo)",
+        "url": "https://api.devnet.solana.com",
+        "apiKey": "",
+        "enabled": true,
+        "isDefault": true
+      }
+    ],
+    "testnet": [
+      {
+        "id": "testnet-solana-official",
+        "label": "Solana Official (Testnet)",
+        "url": "https://api.testnet.solana.com",
+        "apiKey": "",
+        "enabled": true,
+        "isDefault": true
+      },
+      {
+        "id": "testnet-helius",
+        "label": "Helius (Testnet)",
+        "url": "https://testnet.helius-rpc.com",
+        "apiKey": "",
+        "enabled": false,
+        "isDefault": true
+      },
+      {
+        "id": "testnet-quicknode",
+        "label": "QuickNode (Testnet - Demo)",
+        "url": "https://api.testnet.solana.com",
+        "apiKey": "",
+        "enabled": false,
+        "isDefault": true
+      }
+    ]
+  }
+}
