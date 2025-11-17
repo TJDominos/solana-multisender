@@ -2,10 +2,10 @@
   "rpc": {
     "mainnet": [
       {
-        "id": "mainnet-Nodereal",
-        "label": "Nodereal (Mainnet)",
-        "url": "https://bsc-mainnet.nodereal.io/v1/",
-        "apiKey": "e5f75b6438b649c098f3f01f2892a492",
+        "id": "mainnet-Chainstack",
+        "label": "Chainstack (Mainnet)",
+        "url": "https://solana-mainnet.core.chainstack.com/",
+        "apiKey": "d1088d42134bb8a7518df14af67cf958",
         "enabled": true,
         "isDefault": true
       },
