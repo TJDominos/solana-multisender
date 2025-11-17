@@ -23,9 +23,9 @@ A browser-based tool for sending SPL tokens to multiple recipients in batches, w
 
 ## Configuration
 
-### Using `config.json`
+### Using `config.json` (Required)
 
-You can customize default RPC endpoints by creating or editing `config.json` in the repository root:
+**RPC endpoints are configured via `config.json` in the repository root.** This file is the single source of truth for all RPC endpoints. Create or edit `config.json` to configure your endpoints:
 
 ```json
 {
@@ -81,10 +81,13 @@ You can customize default RPC endpoints by creating or editing `config.json` in 
 
 ### Fallback Behavior
 
+**Important:** RPC endpoints are now fully driven by `config.json` - no endpoints are hardcoded in the application.
+
 If `config.json` is missing or malformed:
-1. Console warning is logged
-2. Built-in default endpoints are used
-3. Application continues to work normally
+1. Console warnings are logged with detailed error information
+2. Application uses empty endpoint arrays as minimal fallback
+3. You will need to add custom endpoints via the UI or fix your `config.json`
+4. **Ensure `config.json` exists in the repository root with proper RPC configuration**
 
 ### Custom Endpoints
 

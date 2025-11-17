@@ -438,11 +438,12 @@ export function addCustomEndpoint(label, url, apiKey) {
 
 /**
  * Reset endpoints to defaults for current cluster
+ * Resets to config.json endpoints (or empty array if config.json was not loaded)
  */
 export function resetEndpointsToDefaults() {
   const cluster = getCurrentCluster();
   if (confirm(`Reset all endpoints for ${cluster} to defaults? This will remove all custom endpoints for this cluster.`)) {
-    // Use config.json defaults if available, otherwise built-in defaults
+    // Use config.json defaults if available, otherwise empty array fallback
     const defaults = loadedConfig ? loadedConfig.rpc[cluster] : DEFAULT_RPC_ENDPOINTS[cluster];
     userRpcEndpoints[cluster] = JSON.parse(JSON.stringify(defaults));
     primaryEndpointByCluster[cluster] = null;
