@@ -23,7 +23,9 @@ export const DEFAULT_RPC_ENDPOINTS = {
  */
 export async function loadConfig() {
   try {
-    const response = await fetch('./config.json');
+    // Add cache-busting timestamp to prevent browser/CDN caching
+    const timestamp = Date.now();
+    const response = await fetch(`./config.json?ts=${timestamp}`);
     
     if (!response.ok) {
       console.warn('⚠️ config.json not found or not accessible (HTTP', response.status, ')');
