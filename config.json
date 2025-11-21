@@ -4,7 +4,7 @@
       {
         "id": "mainnet-Chainstack",
         "label": "Chainstack (Mainnet)",
-        "url": "https://solana-mainnet.core.chainstack.com/",
+        "url": "https://solana-mainnet.core.chainstack.com",
         "apiKey": "d1088d42134bb8a7518df14af67cf958",
         "enabled": true,
         "isDefault": true
@@ -20,7 +20,7 @@
       {
         "id": "mainnet-Tatum",
         "label": "Tatum(Mainnet)",
-        "url": "https://solana-mainnet.gateway.tatum.io/",
+        "url": "https://solana-mainnet.gateway.tatum.io",
         "apiKey": "t-6919e1f73b9bb09e10628f3d-215c92a1167e401388dc0302",
         "enabled": true,
         "isDefault": true
