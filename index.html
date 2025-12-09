@@ -165,9 +165,33 @@ CxtR...wxyz, 2"></textarea>
             <div id="progress-bar" class="bg-green-500 h-3 w-0 transition-all duration-300"></div>
           </div>
           <div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mt-2">
-            <div>Completed: <span id="count-completed">0</span></div>
-            <div>Pending: <span id="count-pending">0</span></div>
-            <div>Failed: <span id="count-failed">0</span></div>
+            <!-- Completed Counter with Expand/Collapse -->
+            <div>
+              <button id="toggle-completed" class="text-left hover:text-slate-200 transition w-full">
+                <span class="inline-block w-3">▶</span> Completed: <span id="count-completed">0</span>
+              </button>
+              <div id="details-completed" class="hidden mt-1 max-h-32 overflow-y-auto bg-slate-700 rounded p-2 text-xs">
+                <!-- Completed recipients will be populated here -->
+              </div>
+            </div>
+            <!-- Pending Counter with Expand/Collapse -->
+            <div>
+              <button id="toggle-pending" class="text-left hover:text-slate-200 transition w-full">
+                <span class="inline-block w-3">▶</span> Pending: <span id="count-pending">0</span>
+              </button>
+              <div id="details-pending" class="hidden mt-1 max-h-32 overflow-y-auto bg-slate-700 rounded p-2 text-xs">
+                <!-- Pending recipients will be populated here -->
+              </div>
+            </div>
+            <!-- Failed Counter with Expand/Collapse -->
+            <div>
+              <button id="toggle-failed" class="text-left hover:text-slate-200 transition w-full">
+                <span class="inline-block w-3">▶</span> Failed: <span id="count-failed">0</span>
+              </button>
+              <div id="details-failed" class="hidden mt-1 max-h-32 overflow-y-auto bg-slate-700 rounded p-2 text-xs">
+                <!-- Failed recipients will be populated here -->
+              </div>
+            </div>
           </div>
         </div>
       </div>

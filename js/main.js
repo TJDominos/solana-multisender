@@ -31,7 +31,10 @@ import {
   resetProgress, 
   resetSendBtn,
   applyRecipientsNormalization,
-  log
+  log,
+  toggleCompletedDetails,
+  togglePendingDetails,
+  toggleFailedDetails
 } from './ui.js';
 
 import { initializeConnection, sendTransactions } from './transactions.js';
@@ -71,6 +74,17 @@ function setupEventListeners() {
   
   // Clear log button
   elements.clearLogBtn.addEventListener('click', clearLog);
+  
+  // Toggle buttons for transfer details
+  if (elements.toggleCompleted) {
+    elements.toggleCompleted.addEventListener('click', toggleCompletedDetails);
+  }
+  if (elements.togglePending) {
+    elements.togglePending.addEventListener('click', togglePendingDetails);
+  }
+  if (elements.toggleFailed) {
+    elements.toggleFailed.addEventListener('click', toggleFailedDetails);
+  }
   
   // Cluster selection change
   elements.clusterSelect.addEventListener('change', () => {

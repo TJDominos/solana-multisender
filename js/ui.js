@@ -18,7 +18,13 @@ export const elements = {
   progressLabel: document.getElementById('progress-label'),
   countCompleted: document.getElementById('count-completed'),
   countPending: document.getElementById('count-pending'),
-  countFailed: document.getElementById('count-failed')
+  countFailed: document.getElementById('count-failed'),
+  toggleCompleted: document.getElementById('toggle-completed'),
+  togglePending: document.getElementById('toggle-pending'),
+  toggleFailed: document.getElementById('toggle-failed'),
+  detailsCompleted: document.getElementById('details-completed'),
+  detailsPending: document.getElementById('details-pending'),
+  detailsFailed: document.getElementById('details-failed')
 };
 
 // Progress tracking state
@@ -26,6 +32,13 @@ export const progressState = {
   allRecipients: [],
   completedRecipients: new Set(),
   failedRecipients: []
+};
+
+// Toggle state for expandable sections
+const toggleState = {
+  completed: false,
+  pending: false,
+  failed: false
 };
 
 /**
@@ -80,6 +93,159 @@ export function updateProgress() {
   elements.countCompleted.textContent = String(done);
   elements.countPending.textContent = String(pending);
   elements.countFailed.textContent = String(failed);
+
+  // Update detail lists if expanded
+  if (toggleState.completed) {
+    updateCompletedDetails();
+  }
+  if (toggleState.pending) {
+    updatePendingDetails();
+  }
+  if (toggleState.failed) {
+    updateFailedDetails();
+  }
+}
+
+/**
+ * Update completed details list
+ */
+function updateCompletedDetails() {
+  if (!elements.detailsCompleted) return;
+  
+  const completedList = Array.from(progressState.completedRecipients);
+  if (completedList.length === 0) {
+    elements.detailsCompleted.innerHTML = '<div class="text-slate-500">No completed transfers yet.</div>';
+    return;
+  }
+
+  // Find decimals from allRecipients (if available)
+  const recipientsMap = new Map(
+    progressState.allRecipients.map(r => [r.address.toString(), r])
+  );
+
+  const html = completedList.map(addrStr => {
+    const recipient = recipientsMap.get(addrStr);
+    const amount = recipient ? formatAmount(recipient.amount, getDecimals()) : 'N/A';
+    const shortAddr = `${addrStr.slice(0, 4)}...${addrStr.slice(-4)}`;
+    return `<div class="py-1 border-b border-slate-600 last:border-0">
+      <span class="text-slate-300">${shortAddr}</span>
+      <span class="text-green-400 float-right">${amount}</span>
+    </div>`;
+  }).join('');
+
+  elements.detailsCompleted.innerHTML = html;
+}
+
+/**
+ * Update pending details list
+ */
+function updatePendingDetails() {
+  if (!elements.detailsPending) return;
+  
+  // Pending = all recipients minus completed and failed
+  const completedSet = progressState.completedRecipients;
+  const failedSet = new Set(progressState.failedRecipients.map(r => r.address.toString()));
+  
+  const pendingList = progressState.allRecipients.filter(r => {
+    const addrStr = r.address.toString();
+    return !completedSet.has(addrStr) && !failedSet.has(addrStr);
+  });
+
+  if (pendingList.length === 0) {
+    elements.detailsPending.innerHTML = '<div class="text-slate-500">No pending transfers.</div>';
+    return;
+  }
+
+  const html = pendingList.map(recipient => {
+    const addrStr = recipient.address.toString();
+    const amount = formatAmount(recipient.amount, getDecimals());
+    const shortAddr = `${addrStr.slice(0, 4)}...${addrStr.slice(-4)}`;
+    return `<div class="py-1 border-b border-slate-600 last:border-0">
+      <span class="text-slate-300">${shortAddr}</span>
+      <span class="text-yellow-400 float-right">${amount}</span>
+    </div>`;
+  }).join('');
+
+  elements.detailsPending.innerHTML = html;
+}
+
+/**
+ * Update failed details list
+ */
+function updateFailedDetails() {
+  if (!elements.detailsFailed) return;
+  
+  if (progressState.failedRecipients.length === 0) {
+    elements.detailsFailed.innerHTML = '<div class="text-slate-500">No failed transfers.</div>';
+    return;
+  }
+
+  const html = progressState.failedRecipients.map(recipient => {
+    const addrStr = recipient.address.toString();
+    const amount = formatAmount(recipient.amount, getDecimals());
+    const shortAddr = `${addrStr.slice(0, 4)}...${addrStr.slice(-4)}`;
+    return `<div class="py-1 border-b border-slate-600 last:border-0">
+      <span class="text-slate-300">${shortAddr}</span>
+      <span class="text-red-400 float-right">${amount}</span>
+    </div>`;
+  }).join('');
+
+  elements.detailsFailed.innerHTML = html;
+}
+
+/**
+ * Get decimals from transactions module (if initialized)
+ * Fallback to 9 if not available
+ */
+function getDecimals() {
+  // Import decimals from transactions.js dynamically if needed
+  // For now, we'll check if it's available in the global scope
+  return window._tokenDecimals || 9;
+}
+
+/**
+ * Toggle completed details visibility
+ */
+export function toggleCompletedDetails() {
+  toggleState.completed = !toggleState.completed;
+  if (toggleState.completed) {
+    elements.detailsCompleted.classList.remove('hidden');
+    elements.toggleCompleted.querySelector('span').textContent = '▼';
+    updateCompletedDetails();
+  } else {
+    elements.detailsCompleted.classList.add('hidden');
+    elements.toggleCompleted.querySelector('span').textContent = '▶';
+  }
+}
+
+/**
+ * Toggle pending details visibility
+ */
+export function togglePendingDetails() {
+  toggleState.pending = !toggleState.pending;
+  if (toggleState.pending) {
+    elements.detailsPending.classList.remove('hidden');
+    elements.togglePending.querySelector('span').textContent = '▼';
+    updatePendingDetails();
+  } else {
+    elements.detailsPending.classList.add('hidden');
+    elements.togglePending.querySelector('span').textContent = '▶';
+  }
+}
+
+/**
+ * Toggle failed details visibility
+ */
+export function toggleFailedDetails() {
+  toggleState.failed = !toggleState.failed;
+  if (toggleState.failed) {
+    elements.detailsFailed.classList.remove('hidden');
+    elements.toggleFailed.querySelector('span').textContent = '▼';
+    updateFailedDetails();
+  } else {
+    elements.detailsFailed.classList.add('hidden');
+    elements.toggleFailed.querySelector('span').textContent = '▶';
+  }
 }
 
 /**
@@ -89,6 +255,37 @@ export function resetProgress() {
   progressState.allRecipients = [];
   progressState.completedRecipients = new Set();
   progressState.failedRecipients = [];
+  
+  // Reset toggle states
+  toggleState.completed = false;
+  toggleState.pending = false;
+  toggleState.failed = false;
+  
+  // Hide and clear all detail sections
+  if (elements.detailsCompleted) {
+    elements.detailsCompleted.classList.add('hidden');
+    elements.detailsCompleted.innerHTML = '';
+  }
+  if (elements.detailsPending) {
+    elements.detailsPending.classList.add('hidden');
+    elements.detailsPending.innerHTML = '';
+  }
+  if (elements.detailsFailed) {
+    elements.detailsFailed.classList.add('hidden');
+    elements.detailsFailed.innerHTML = '';
+  }
+  
+  // Reset toggle button chevrons
+  if (elements.toggleCompleted) {
+    elements.toggleCompleted.querySelector('span').textContent = '▶';
+  }
+  if (elements.togglePending) {
+    elements.togglePending.querySelector('span').textContent = '▶';
+  }
+  if (elements.toggleFailed) {
+    elements.toggleFailed.querySelector('span').textContent = '▶';
+  }
+  
   updateProgress();
 }
 

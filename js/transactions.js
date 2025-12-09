@@ -428,6 +428,7 @@ export async function sendTransactions(mintStr, recipientsList, batchSize, userR
 
   const mintInfo = await getMint(connection, mintPubkey, 'confirmed', tokenProgramId);
   decimals = mintInfo.decimals;
+  window._tokenDecimals = decimals; // Expose for UI module
   log(`Decimals: ${decimals}`, 'info');
 
   // Sender ATA
