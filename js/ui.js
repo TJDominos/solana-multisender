@@ -207,19 +207,30 @@ function getDecimals() {
 }
 
 /**
+ * Update chevron indicator for toggle button
+ * @param {HTMLElement} toggleElement - Toggle button element
+ * @param {boolean} isExpanded - Whether the section is expanded
+ */
+function updateChevron(toggleElement, isExpanded) {
+  if (!toggleElement) return;
+  const chevron = toggleElement.querySelector('span');
+  if (chevron) {
+    chevron.textContent = isExpanded ? '▼' : '▶';
+  }
+}
+
+/**
  * Toggle completed details visibility
  */
 export function toggleCompletedDetails() {
   toggleState.completed = !toggleState.completed;
   if (toggleState.completed) {
     elements.detailsCompleted.classList.remove('hidden');
-    const chevron = elements.toggleCompleted?.querySelector('span');
-    if (chevron) chevron.textContent = '▼';
+    updateChevron(elements.toggleCompleted, true);
     updateCompletedDetails();
   } else {
     elements.detailsCompleted.classList.add('hidden');
-    const chevron = elements.toggleCompleted?.querySelector('span');
-    if (chevron) chevron.textContent = '▶';
+    updateChevron(elements.toggleCompleted, false);
   }
 }
 
@@ -230,13 +241,11 @@ export function togglePendingDetails() {
   toggleState.pending = !toggleState.pending;
   if (toggleState.pending) {
     elements.detailsPending.classList.remove('hidden');
-    const chevron = elements.togglePending?.querySelector('span');
-    if (chevron) chevron.textContent = '▼';
+    updateChevron(elements.togglePending, true);
     updatePendingDetails();
   } else {
     elements.detailsPending.classList.add('hidden');
-    const chevron = elements.togglePending?.querySelector('span');
-    if (chevron) chevron.textContent = '▶';
+    updateChevron(elements.togglePending, false);
   }
 }
 
@@ -247,13 +256,11 @@ export function toggleFailedDetails() {
   toggleState.failed = !toggleState.failed;
   if (toggleState.failed) {
     elements.detailsFailed.classList.remove('hidden');
-    const chevron = elements.toggleFailed?.querySelector('span');
-    if (chevron) chevron.textContent = '▼';
+    updateChevron(elements.toggleFailed, true);
     updateFailedDetails();
   } else {
     elements.detailsFailed.classList.add('hidden');
-    const chevron = elements.toggleFailed?.querySelector('span');
-    if (chevron) chevron.textContent = '▶';
+    updateChevron(elements.toggleFailed, false);
   }
 }
 
@@ -285,18 +292,9 @@ export function resetProgress() {
   }
   
   // Reset toggle button chevrons
-  if (elements.toggleCompleted) {
-    const chevron = elements.toggleCompleted.querySelector('span');
-    if (chevron) chevron.textContent = '▶';
-  }
-  if (elements.togglePending) {
-    const chevron = elements.togglePending.querySelector('span');
-    if (chevron) chevron.textContent = '▶';
-  }
-  if (elements.toggleFailed) {
-    const chevron = elements.toggleFailed.querySelector('span');
-    if (chevron) chevron.textContent = '▶';
-  }
+  updateChevron(elements.toggleCompleted, false);
+  updateChevron(elements.togglePending, false);
+  updateChevron(elements.toggleFailed, false);
   
   updateProgress();
 }
