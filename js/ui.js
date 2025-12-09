@@ -41,6 +41,9 @@ const toggleState = {
   failed: false
 };
 
+// Default decimals for token amounts (fallback if not set)
+const DEFAULT_DECIMALS = 9;
+
 /**
  * Log a message to the log output
  * @param {string} msg - Message to log
@@ -195,12 +198,12 @@ function updateFailedDetails() {
 
 /**
  * Get decimals from transactions module (if initialized)
- * Fallback to 9 if not available
+ * Fallback to DEFAULT_DECIMALS if not available
  */
 function getDecimals() {
-  // Import decimals from transactions.js dynamically if needed
-  // For now, we'll check if it's available in the global scope
-  return window._tokenDecimals || 9;
+  // Check if decimals is available from transactions module via global scope
+  // This is a simple approach for inter-module communication
+  return window._tokenDecimals || DEFAULT_DECIMALS;
 }
 
 /**
@@ -210,11 +213,13 @@ export function toggleCompletedDetails() {
   toggleState.completed = !toggleState.completed;
   if (toggleState.completed) {
     elements.detailsCompleted.classList.remove('hidden');
-    elements.toggleCompleted.querySelector('span').textContent = '▼';
+    const chevron = elements.toggleCompleted?.querySelector('span');
+    if (chevron) chevron.textContent = '▼';
     updateCompletedDetails();
   } else {
     elements.detailsCompleted.classList.add('hidden');
-    elements.toggleCompleted.querySelector('span').textContent = '▶';
+    const chevron = elements.toggleCompleted?.querySelector('span');
+    if (chevron) chevron.textContent = '▶';
   }
 }
 
@@ -225,11 +230,13 @@ export function togglePendingDetails() {
   toggleState.pending = !toggleState.pending;
   if (toggleState.pending) {
     elements.detailsPending.classList.remove('hidden');
-    elements.togglePending.querySelector('span').textContent = '▼';
+    const chevron = elements.togglePending?.querySelector('span');
+    if (chevron) chevron.textContent = '▼';
     updatePendingDetails();
   } else {
     elements.detailsPending.classList.add('hidden');
-    elements.togglePending.querySelector('span').textContent = '▶';
+    const chevron = elements.togglePending?.querySelector('span');
+    if (chevron) chevron.textContent = '▶';
   }
 }
 
@@ -240,11 +247,13 @@ export function toggleFailedDetails() {
   toggleState.failed = !toggleState.failed;
   if (toggleState.failed) {
     elements.detailsFailed.classList.remove('hidden');
-    elements.toggleFailed.querySelector('span').textContent = '▼';
+    const chevron = elements.toggleFailed?.querySelector('span');
+    if (chevron) chevron.textContent = '▼';
     updateFailedDetails();
   } else {
     elements.detailsFailed.classList.add('hidden');
-    elements.toggleFailed.querySelector('span').textContent = '▶';
+    const chevron = elements.toggleFailed?.querySelector('span');
+    if (chevron) chevron.textContent = '▶';
   }
 }
 
@@ -277,13 +286,16 @@ export function resetProgress() {
   
   // Reset toggle button chevrons
   if (elements.toggleCompleted) {
-    elements.toggleCompleted.querySelector('span').textContent = '▶';
+    const chevron = elements.toggleCompleted.querySelector('span');
+    if (chevron) chevron.textContent = '▶';
   }
   if (elements.togglePending) {
-    elements.togglePending.querySelector('span').textContent = '▶';
+    const chevron = elements.togglePending.querySelector('span');
+    if (chevron) chevron.textContent = '▶';
   }
   if (elements.toggleFailed) {
-    elements.toggleFailed.querySelector('span').textContent = '▶';
+    const chevron = elements.toggleFailed.querySelector('span');
+    if (chevron) chevron.textContent = '▶';
   }
   
   updateProgress();
