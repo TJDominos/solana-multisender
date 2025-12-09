@@ -150,10 +150,16 @@ CxtR...wxyz, 2"></textarea>
           </p>
         </div>
 
-        <button id="send-btn" disabled
-          class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition disabled:bg-gray-500">
-          Connect Wallet to Start
-        </button>
+        <div class="flex gap-2">
+          <button id="send-btn" disabled
+            class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition disabled:bg-gray-500">
+            Connect Wallet to Start
+          </button>
+          <button id="stop-btn" style="display: none;"
+            class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition">
+            Stop
+          </button>
+        </div>
 
         <!-- Progress -->
         <div class="mt-4">
@@ -164,10 +170,41 @@ CxtR...wxyz, 2"></textarea>
           <div id="progress-bar-wrapper" class="w-full bg-slate-700 h-3 rounded overflow-hidden">
             <div id="progress-bar" class="bg-green-500 h-3 w-0 transition-all duration-300"></div>
           </div>
-          <div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mt-2">
-            <div>Completed: <span id="count-completed">0</span></div>
-            <div>Pending: <span id="count-pending">0</span></div>
-            <div>Failed: <span id="count-failed">0</span></div>
+          
+          <!-- Expandable Status Details -->
+          <div class="mt-2 space-y-1">
+            <!-- Completed -->
+            <div class="bg-slate-700 rounded">
+              <button id="toggle-completed" class="w-full flex items-center justify-between text-xs text-slate-300 px-3 py-2 hover:bg-slate-600 rounded transition">
+                <span>Completed: <span id="count-completed">0</span></span>
+                <span id="chevron-completed" class="text-slate-400 transition-transform">▶</span>
+              </button>
+              <div id="list-completed" class="hidden px-3 pb-2 max-h-32 overflow-y-auto text-xs text-slate-300">
+                <!-- Completed recipients will be listed here -->
+              </div>
+            </div>
+            
+            <!-- Pending -->
+            <div class="bg-slate-700 rounded">
+              <button id="toggle-pending" class="w-full flex items-center justify-between text-xs text-slate-300 px-3 py-2 hover:bg-slate-600 rounded transition">
+                <span>Pending: <span id="count-pending">0</span></span>
+                <span id="chevron-pending" class="text-slate-400 transition-transform">▶</span>
+              </button>
+              <div id="list-pending" class="hidden px-3 pb-2 max-h-32 overflow-y-auto text-xs text-slate-300">
+                <!-- Pending recipients will be listed here -->
+              </div>
+            </div>
+            
+            <!-- Failed -->
+            <div class="bg-slate-700 rounded">
+              <button id="toggle-failed" class="w-full flex items-center justify-between text-xs text-slate-300 px-3 py-2 hover:bg-slate-600 rounded transition">
+                <span>Failed: <span id="count-failed">0</span></span>
+                <span id="chevron-failed" class="text-slate-400 transition-transform">▶</span>
+              </button>
+              <div id="list-failed" class="hidden px-3 pb-2 max-h-32 overflow-y-auto text-xs text-slate-300">
+                <!-- Failed recipients will be listed here -->
+              </div>
+            </div>
           </div>
         </div>
       </div>
