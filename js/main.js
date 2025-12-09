@@ -173,8 +173,10 @@ function setupEventListeners() {
     elements.sendBtn.disabled = true;
     elements.sendBtn.textContent = 'Processing...';
     
-    // Show stop button, hide send button
+    // Show stop button and reset its state
     elements.stopBtn.style.display = 'block';
+    elements.stopBtn.disabled = false;
+    elements.stopBtn.textContent = 'Stop';
     
     // Reset abort flag
     resetAbort();
@@ -225,12 +227,14 @@ function setupEventListeners() {
   });
   
   // Stop button
-  elements.stopBtn?.addEventListener('click', () => {
-    log('Stop requested by user...', 'warning');
-    requestAbort();
-    elements.stopBtn.disabled = true;
-    elements.stopBtn.textContent = 'Stopping...';
-  });
+  if (elements.stopBtn) {
+    elements.stopBtn.addEventListener('click', () => {
+      log('Stop requested by user...', 'warning');
+      requestAbort();
+      elements.stopBtn.disabled = true;
+      elements.stopBtn.textContent = 'Stopping...';
+    });
+  }
   
   // Delegate click events for dynamically rendered endpoint list
   document.getElementById('rpc-endpoints-list')?.addEventListener('click', (e) => {

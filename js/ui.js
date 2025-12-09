@@ -102,9 +102,15 @@ export function updateProgress() {
 function updateDetailLists() {
   const decimals = progressState.decimals || 0;
   
+  // Create a map for O(1) recipient lookups
+  const recipientMap = new Map();
+  for (const recipient of progressState.allRecipients) {
+    recipientMap.set(recipient.address.toString(), recipient);
+  }
+  
   // Completed list
   const completedHtml = Array.from(progressState.completedRecipients).map(addr => {
-    const recipient = progressState.allRecipients.find(r => r.address.toString() === addr);
+    const recipient = recipientMap.get(addr);
     if (!recipient) return '';
     const amount = formatAmount(recipient.amount, decimals);
     return `<div class="py-1 border-b border-slate-600 last:border-b-0">
