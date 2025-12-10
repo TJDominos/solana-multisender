@@ -22,6 +22,30 @@ import {
   minConsensusThreshold 
 } from './rpc-config.js';
 
+// Abort flag for stopping in-flight sends
+let abortRequested = false;
+
+/**
+ * Request abort of current send operation
+ */
+export function requestAbort() {
+  abortRequested = true;
+}
+
+/**
+ * Reset abort flag (call when starting new send)
+ */
+export function resetAbort() {
+  abortRequested = false;
+}
+
+/**
+ * Check if abort was requested
+ */
+export function isAbortRequested() {
+  return abortRequested;
+}
+
 // Connection state
 export let connection = null;
 export let mintPubkey = null;
@@ -428,6 +452,7 @@ export async function sendTransactions(mintStr, recipientsList, batchSize, userR
 
   const mintInfo = await getMint(connection, mintPubkey, 'confirmed', tokenProgramId);
   decimals = mintInfo.decimals;
+  progressState.decimals = decimals;
   log(`Decimals: ${decimals}`, 'info');
 
   // Sender ATA
@@ -478,6 +503,12 @@ export async function sendTransactions(mintStr, recipientsList, batchSize, userR
 
   // Process batches sequentially with recursive splitting
   for (let i = 0; i < batches.length; i++) {
+    // Check if abort was requested
+    if (abortRequested) {
+      log('⛔ Sending stopped by user. Remaining recipients will stay pending.', 'warning');
+      break;
+    }
+    
     const batch = batches[i].filter(r => !progressState.completedRecipients.has(r.address.toString()));
     if (batch.length === 0) continue;
 

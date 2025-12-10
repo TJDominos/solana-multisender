@@ -31,10 +31,11 @@ import {
   resetProgress, 
   resetSendBtn,
   applyRecipientsNormalization,
+  setupDetailListToggles,
   log
 } from './ui.js';
 
-import { initializeConnection, sendTransactions } from './transactions.js';
+import { initializeConnection, sendTransactions, requestAbort, resetAbort } from './transactions.js';
 
 /**
  * Initialize the application
@@ -51,6 +52,9 @@ async function init() {
   if (thresholdInput) {
     thresholdInput.value = minConsensusThreshold;
   }
+  
+  // Setup detail list toggles
+  setupDetailListToggles();
   
   setUi(false);
   resetProgress();
@@ -168,6 +172,15 @@ function setupEventListeners() {
   elements.sendBtn.addEventListener('click', async () => {
     elements.sendBtn.disabled = true;
     elements.sendBtn.textContent = 'Processing...';
+    
+    // Show stop button and reset its state
+    elements.stopBtn.style.display = 'block';
+    elements.stopBtn.disabled = false;
+    elements.stopBtn.textContent = 'Stop';
+    
+    // Reset abort flag
+    resetAbort();
+    
     resetProgress();
     log('Starting multisend with retries...', 'info');
     
@@ -182,16 +195,19 @@ function setupEventListeners() {
     if (!mintStr) {
       log('Mint address required.', 'error');
       resetSendBtn();
+      elements.stopBtn.style.display = 'none';
       return;
     }
     if (!listStr) {
       log('Recipients list empty.', 'error');
       resetSendBtn();
+      elements.stopBtn.style.display = 'none';
       return;
     }
     if (isNaN(batchSize) || batchSize <= 0 || batchSize > 12) {
       log('Batch size 1–12 required.', 'error');
       resetSendBtn();
+      elements.stopBtn.style.display = 'none';
       return;
     }
     
@@ -206,8 +222,19 @@ function setupEventListeners() {
       if (err?.stack) log(err.stack, 'error');
     } finally {
       resetSendBtn();
+      elements.stopBtn.style.display = 'none';
     }
   });
+  
+  // Stop button
+  if (elements.stopBtn) {
+    elements.stopBtn.addEventListener('click', () => {
+      log('Stop requested by user...', 'warning');
+      requestAbort();
+      elements.stopBtn.disabled = true;
+      elements.stopBtn.textContent = 'Stopping...';
+    });
+  }
   
   // Delegate click events for dynamically rendered endpoint list
   document.getElementById('rpc-endpoints-list')?.addEventListener('click', (e) => {

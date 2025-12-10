@@ -11,6 +11,7 @@ export const elements = {
   trimRecipientsBtn: document.getElementById('trim-recipients-btn'),
   batchSizeInput: document.getElementById('batch-size'),
   sendBtn: document.getElementById('send-btn'),
+  stopBtn: document.getElementById('stop-btn'),
   hint: document.getElementById('connect-hint'),
   clearLogBtn: document.getElementById('clear-log-btn'),
   logOutput: document.getElementById('log-output'),
@@ -18,14 +19,24 @@ export const elements = {
   progressLabel: document.getElementById('progress-label'),
   countCompleted: document.getElementById('count-completed'),
   countPending: document.getElementById('count-pending'),
-  countFailed: document.getElementById('count-failed')
+  countFailed: document.getElementById('count-failed'),
+  toggleCompleted: document.getElementById('toggle-completed'),
+  togglePending: document.getElementById('toggle-pending'),
+  toggleFailed: document.getElementById('toggle-failed'),
+  listCompleted: document.getElementById('list-completed'),
+  listPending: document.getElementById('list-pending'),
+  listFailed: document.getElementById('list-failed'),
+  chevronCompleted: document.getElementById('chevron-completed'),
+  chevronPending: document.getElementById('chevron-pending'),
+  chevronFailed: document.getElementById('chevron-failed')
 };
 
 // Progress tracking state
 export const progressState = {
   allRecipients: [],
   completedRecipients: new Set(),
-  failedRecipients: []
+  failedRecipients: [],
+  decimals: 0
 };
 
 /**
@@ -80,6 +91,63 @@ export function updateProgress() {
   elements.countCompleted.textContent = String(done);
   elements.countPending.textContent = String(pending);
   elements.countFailed.textContent = String(failed);
+
+  // Update detail lists
+  updateDetailLists();
+}
+
+/**
+ * Update the detail lists for completed, pending, and failed recipients
+ */
+function updateDetailLists() {
+  const decimals = progressState.decimals || 0;
+  
+  // Create a map for O(1) recipient lookups
+  const recipientMap = new Map();
+  for (const recipient of progressState.allRecipients) {
+    recipientMap.set(recipient.address.toString(), recipient);
+  }
+  
+  // Completed list
+  const completedHtml = Array.from(progressState.completedRecipients).map(addr => {
+    const recipient = recipientMap.get(addr);
+    if (!recipient) return '';
+    const amount = formatAmount(recipient.amount, decimals);
+    return `<div class="py-1 border-b border-slate-600 last:border-b-0">
+      <div class="font-mono text-[10px] text-slate-400 truncate">${addr}</div>
+      <div class="text-green-400">${amount}</div>
+    </div>`;
+  }).join('');
+  elements.listCompleted.innerHTML = completedHtml || '<div class="text-slate-500 py-2">No completed transfers</div>';
+
+  // Failed list
+  const failedHtml = progressState.failedRecipients.map(recipient => {
+    const addr = recipient.address.toString();
+    const amount = formatAmount(recipient.amount, decimals);
+    return `<div class="py-1 border-b border-slate-600 last:border-b-0">
+      <div class="font-mono text-[10px] text-slate-400 truncate">${addr}</div>
+      <div class="text-red-400">${amount}</div>
+    </div>`;
+  }).join('');
+  elements.listFailed.innerHTML = failedHtml || '<div class="text-slate-500 py-2">No failed transfers</div>';
+
+  // Pending list (allRecipients - completed - failed)
+  const completedSet = progressState.completedRecipients;
+  const failedSet = new Set(progressState.failedRecipients.map(r => r.address.toString()));
+  const pendingRecipients = progressState.allRecipients.filter(r => {
+    const addr = r.address.toString();
+    return !completedSet.has(addr) && !failedSet.has(addr);
+  });
+  
+  const pendingHtml = pendingRecipients.map(recipient => {
+    const addr = recipient.address.toString();
+    const amount = formatAmount(recipient.amount, decimals);
+    return `<div class="py-1 border-b border-slate-600 last:border-b-0">
+      <div class="font-mono text-[10px] text-slate-400 truncate">${addr}</div>
+      <div class="text-yellow-400">${amount}</div>
+    </div>`;
+  }).join('');
+  elements.listPending.innerHTML = pendingHtml || '<div class="text-slate-500 py-2">No pending transfers</div>';
 }
 
 /**
@@ -89,6 +157,16 @@ export function resetProgress() {
   progressState.allRecipients = [];
   progressState.completedRecipients = new Set();
   progressState.failedRecipients = [];
+  progressState.decimals = 0;
+  
+  // Collapse all detail sections
+  elements.listCompleted.classList.add('hidden');
+  elements.listPending.classList.add('hidden');
+  elements.listFailed.classList.add('hidden');
+  elements.chevronCompleted.style.transform = 'rotate(0deg)';
+  elements.chevronPending.style.transform = 'rotate(0deg)';
+  elements.chevronFailed.style.transform = 'rotate(0deg)';
+  
   updateProgress();
 }
 
@@ -173,4 +251,30 @@ export function applyRecipientsNormalization() {
     elements.recipientsInput.value = after;
     log('Recipients trimmed & normalized.', 'info');
   }
+}
+
+/**
+ * Toggle detail list visibility
+ * @param {string} type - 'completed', 'pending', or 'failed'
+ */
+export function toggleDetailList(type) {
+  const listElement = elements[`list${type.charAt(0).toUpperCase() + type.slice(1)}`];
+  const chevronElement = elements[`chevron${type.charAt(0).toUpperCase() + type.slice(1)}`];
+  
+  if (listElement.classList.contains('hidden')) {
+    listElement.classList.remove('hidden');
+    chevronElement.style.transform = 'rotate(90deg)';
+  } else {
+    listElement.classList.add('hidden');
+    chevronElement.style.transform = 'rotate(0deg)';
+  }
+}
+
+/**
+ * Setup toggle event listeners for detail lists
+ */
+export function setupDetailListToggles() {
+  elements.toggleCompleted?.addEventListener('click', () => toggleDetailList('completed'));
+  elements.togglePending?.addEventListener('click', () => toggleDetailList('pending'));
+  elements.toggleFailed?.addEventListener('click', () => toggleDetailList('failed'));
 }
